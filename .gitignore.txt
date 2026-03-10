@@ -1,0 +1,37 @@
+# --- Xcode ---
+# Kullanıcıya özel ayarlar (başkasıyla çakışan en büyük sorun budur)
+xcuserdata/
+*.xcuserstate
+project.xcworkspace/
+DerivedData/
+
+# Geçici dosyalar ve build çıktıları
+build/
+*.moved-aside
+*.orig
+*.jmap
+*.hmap
+
+# --- macOS ---
+# Sistemin otomatik oluşturduğu gizli dosyalar
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+.Spotlight-V100
+.Trashes
+
+# --- Dependencies ---
+# Eğer ileride CocoaPods veya Swift Package Manager kullanırsan
+# Pods/ klasörünü genelde uzak sunucuya göndermeyiz
+Pods/
+.build/
+
+# --- Backend / API (Sadece bu repoda istemediğin için) ---
+# Az önce yanlışlıkla eklenen api klasörünü bir daha almaz
+api/
+node_modules/
+.env
+
+# --- Swift Package Manager ---
+.swiftpm/xcode/
