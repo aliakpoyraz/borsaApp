@@ -28,10 +28,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		C9170AE02F60C7B0003D3C33 /* borsaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = borsaApp.app; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaApp.app"; sourceTree = "<absolute>"; };
-		C9170AED2F60C7B4003D3C33 /* borsaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = borsaAppTests.xctest; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaApp.app/PlugIns/borsaAppTests.xctest"; sourceTree = "<absolute>"; };
-		C9170AF72F60C7B4003D3C33 /* borsaAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = borsaAppUITests.xctest; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaAppUITests-Runner.app/PlugIns/borsaAppUITests.xctest"; sourceTree = "<absolute>"; };
 		C9170D122F60CA91003D3C33 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		C95E36B52F60CBEA0035EC50 /* borsaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = borsaApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C95E36B62F60CBEA0035EC50 /* borsaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = borsaAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C95E36B72F60CBEA0035EC50 /* borsaAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = borsaAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -146,6 +146,9 @@
 				C9170CC52F60C95C003D3C33 /* SupportingFiles */,
 				C9170CCE2F60C95C003D3C33 /* Utilities */,
 				C9170B0B2F60C7C4003D3C33 /* Test */,
+				C95E36B52F60CBEA0035EC50 /* borsaApp.app */,
+				C95E36B62F60CBEA0035EC50 /* borsaAppTests.xctest */,
+				C95E36B72F60CBEA0035EC50 /* borsaAppUITests.xctest */,
 			);
 			sourceTree = "<group>";
 		};
@@ -178,7 +181,7 @@
 			packageProductDependencies = (
 			);
 			productName = borsaApp;
-			productReference = C9170AE02F60C7B0003D3C33 /* borsaApp.app */;
+			productReference = C95E36B52F60CBEA0035EC50 /* borsaApp.app */;
 			productType = "com.apple.product-type.application";
 		};
 		C9170AEC2F60C7B4003D3C33 /* borsaAppTests */ = {
@@ -198,7 +201,7 @@
 			packageProductDependencies = (
 			);
 			productName = borsaAppTests;
-			productReference = C9170AED2F60C7B4003D3C33 /* borsaAppTests.xctest */;
+			productReference = C95E36B62F60CBEA0035EC50 /* borsaAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		C9170AF62F60C7B4003D3C33 /* borsaAppUITests */ = {
@@ -218,7 +221,7 @@
 			packageProductDependencies = (
 			);
 			productName = borsaAppUITests;
-			productReference = C9170AF72F60C7B4003D3C33 /* borsaAppUITests.xctest */;
+			productReference = C95E36B72F60CBEA0035EC50 /* borsaAppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
