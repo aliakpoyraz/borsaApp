@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C9170D132F60CA91003D3C33 /* .gitignore.txt in Resources */ = {isa = PBXBuildFile; fileRef = C9170D122F60CA91003D3C33 /* .gitignore.txt */; };
+		C9170D132F60CA91003D3C33 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = C9170D122F60CA91003D3C33 /* .gitignore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,7 +31,7 @@
 		C9170AE02F60C7B0003D3C33 /* borsaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = borsaApp.app; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaApp.app"; sourceTree = "<absolute>"; };
 		C9170AED2F60C7B4003D3C33 /* borsaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = borsaAppTests.xctest; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaApp.app/PlugIns/borsaAppTests.xctest"; sourceTree = "<absolute>"; };
 		C9170AF72F60C7B4003D3C33 /* borsaAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = borsaAppUITests.xctest; path = "/Users/aliakpoyraz/borsaApp/build/Debug-iphoneos/borsaAppUITests-Runner.app/PlugIns/borsaAppUITests.xctest"; sourceTree = "<absolute>"; };
-		C9170D122F60CA91003D3C33 /* .gitignore.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore.txt; sourceTree = "<group>"; };
+		C9170D122F60CA91003D3C33 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -137,7 +137,7 @@
 		C9170AD72F60C7B0003D3C33 = {
 			isa = PBXGroup;
 			children = (
-				C9170D122F60CA91003D3C33 /* .gitignore.txt */,
+				C9170D122F60CA91003D3C33 /* .gitignore */,
 				C9170C6A2F60C95C003D3C33 /* App */,
 				C9170C832F60C95C003D3C33 /* Core */,
 				C9170C8E2F60C95C003D3C33 /* Domain */,
@@ -270,7 +270,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C9170D132F60CA91003D3C33 /* .gitignore.txt in Resources */,
+				C9170D132F60CA91003D3C33 /* .gitignore in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
