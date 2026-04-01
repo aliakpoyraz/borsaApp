@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 public enum WebSocketConnectionState: Sendable, Equatable {
@@ -33,7 +32,8 @@ public protocol WebSocketClienting: Sendable {
 
 /// Binance WebSocket client for live prices.
 /// Endpoint: wss://stream.binance.com:9443/ws
-public final class WebSocketClient: ObservableObject, WebSocketClienting, @unchecked Sendable {
+@MainActor
+public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     public enum Error: Swift.Error, LocalizedError, Sendable {
         case invalidEndpoint
         case messageEncodingFailed
@@ -56,10 +56,6 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
     public let stateStream: AsyncStream<WebSocketConnectionState>
     public let priceStream: AsyncStream<WebSocketPriceTick>
 
-    // MARK: - Published State (UI-friendly)
-
-    @Published public private(set) var connectionState: WebSocketConnectionState = .disconnected
-
     // MARK: - Private
 
     private let endpointURL: URL?
@@ -78,9 +74,6 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
     private var state: WebSocketConnectionState = .disconnected {
         didSet {
             stateContinuation?.yield(state)
-            Task { @MainActor [weak self] in
-                self?.connectionState = state
-            }
         }
     }
 
@@ -109,7 +102,6 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
         self.priceContinuation = priceCont
 
         self.stateContinuation?.yield(.disconnected)
-        self.connectionState = .disconnected
     }
 
     deinit {
@@ -131,7 +123,8 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
             return
         }
 
-        if state == .connected || state == .connecting { return }
+        if case .connected = state { return }
+        if case .connecting = state { return }
 
         reconnectTask?.cancel()
         receiveLoopTask?.cancel()
@@ -146,13 +139,8 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
         state = .connected
         reconnectAttempt = 0
 
-        receiveLoopTask = Task { [weak self] in
-            await self?.receiveLoop()
-        }
-
-        pingLoopTask = Task { [weak self] in
-            await self?.pingLoop()
-        }
+        receiveLoopTask = Task { await self.receiveLoop() }
+        pingLoopTask = Task { await self.pingLoop() }
 
         // Re-subscribe after reconnect / connect.
         if !subscriptionSet.isEmpty {
@@ -187,9 +175,9 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
 
         for s in normalized { subscriptionSet.insert(s) }
 
-        guard state == .connected else {
+        guard (ifCaseConnected(state)) else {
             // If not connected yet, we'll subscribe automatically when connected.
-            if state == .disconnected || (ifCaseError(state)) { await connect() }
+            if ifCaseDisconnected(state) || (ifCaseError(state)) { await connect() }
             return
         }
 
@@ -200,6 +188,16 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
 
     private func ifCaseError(_ state: WebSocketConnectionState) -> Bool {
         if case .error = state { return true }
+        return false
+    }
+
+    private func ifCaseConnected(_ state: WebSocketConnectionState) -> Bool {
+        if case .connected = state { return true }
+        return false
+    }
+
+    private func ifCaseDisconnected(_ state: WebSocketConnectionState) -> Bool {
+        if case .disconnected = state { return true }
         return false
     }
 
@@ -218,19 +216,18 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
     private func scheduleReconnect() {
         reconnectTask?.cancel()
 
-        reconnectTask = Task { [weak self] in
-            guard let self else { return }
-            guard !self.requestedDisconnect else { return }
+        reconnectTask = Task {
+            guard !requestedDisconnect else { return }
 
             // Exponential backoff with cap: 1s, 2s, 4s, 8s, 16s, 30s...
-            self.reconnectAttempt += 1
+            reconnectAttempt += 1
             let base: Double = 1
             let cap: Double = 30
-            let delay = min(cap, base * pow(2, Double(max(0, self.reconnectAttempt - 1))))
+            let delay = min(cap, base * pow(2, Double(max(0, reconnectAttempt - 1))))
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
 
-            guard !self.requestedDisconnect else { return }
-            await self.connect()
+            guard !requestedDisconnect else { return }
+            await connect()
         }
     }
 
@@ -239,13 +236,25 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
             try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
             if Task.isCancelled { return }
 
-            guard let task, state == .connected else { continue }
+            guard let task, ifCaseConnected(state) else { continue }
 
             do {
-                try await task.sendPing()
+                try await sendPing(task)
             } catch {
                 await transitionToErrorAndMaybeReconnect(message: error.localizedDescription)
                 return
+            }
+        }
+    }
+
+    private func sendPing(_ task: URLSessionWebSocketTask) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Swift.Error>) in
+            task.sendPing { error in
+                if let error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume(returning: ())
+                }
             }
         }
     }
@@ -296,7 +305,7 @@ public final class WebSocketClient: ObservableObject, WebSocketClienting, @unche
     }
 
     private func sendSubscribe(symbols: [String]) async {
-        guard let task, state == .connected else { return }
+        guard let task, ifCaseConnected(state) else { return }
 
         let params = symbols
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }

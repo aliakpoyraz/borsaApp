@@ -1,15 +1,15 @@
 import Foundation
 
-protocol CryptoServicing: Sendable {
+public protocol CryptoServicing: Sendable {
     func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy) async throws -> [Crypto]
 }
 
-final class CryptoService: CryptoServicing, @unchecked Sendable {
-    enum Error: Swift.Error, LocalizedError, Sendable {
+public final class CryptoService: CryptoServicing, @unchecked Sendable {
+    public enum Error: Swift.Error, LocalizedError, Sendable {
         case invalidEndpoint
         case requestFailed(RESTClient.Error)
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .invalidEndpoint:
                 return "Binance endpoint URL could not be constructed."
@@ -22,7 +22,7 @@ final class CryptoService: CryptoServicing, @unchecked Sendable {
     private let client: RESTClient
     private let endpointURL: URL?
 
-    init(
+    public init(
         client: RESTClient = RESTClient(),
         endpointURL: URL? = URL(string: "https://api.binance.com/api/v3/ticker/24hr")
     ) {
@@ -30,7 +30,7 @@ final class CryptoService: CryptoServicing, @unchecked Sendable {
         self.endpointURL = endpointURL
     }
 
-    func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy = .refreshIgnoringCache) async throws -> [Crypto] {
+    public func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy = .refreshIgnoringCache) async throws -> [Crypto] {
         guard let endpointURL else { throw Error.invalidEndpoint }
 
         let request = RESTClient.Request(

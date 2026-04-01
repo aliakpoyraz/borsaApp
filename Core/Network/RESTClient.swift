@@ -173,7 +173,7 @@ public final class RESTClient: @unchecked Sendable {
             }
 
             let ttl = ttlToStore(from: request.cachePolicy)
-            if ttl != nil || request.cachePolicy == .useCacheIfAvailable {
+            if ttl != nil || (ifCaseUseCacheIfAvailable(request.cachePolicy)) {
                 storeCache(data: data, forKey: key, ttl: ttl ?? config.cache.defaultTTL)
             }
 
@@ -253,6 +253,11 @@ public final class RESTClient: @unchecked Sendable {
         case .useCacheIfAvailable: return nil
         case .ignoreCache, .refreshIgnoringCache: return nil
         }
+    }
+
+    private func ifCaseUseCacheIfAvailable(_ policy: CachePolicy) -> Bool {
+        if case .useCacheIfAvailable = policy { return true }
+        return false
     }
 
     private func cacheKey(for request: Request, builtURL: URL?, builtBody: Data?) -> NSString {

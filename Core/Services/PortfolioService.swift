@@ -20,7 +20,8 @@ public protocol PortfolioServicing: Sendable {
     func resetToInitialState() async
 }
 
-public actor PortfolioService: PortfolioServicing {
+@MainActor
+public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
     public enum Error: Swift.Error, LocalizedError, Sendable {
         case invalidSymbol
         case invalidQuantity
@@ -71,9 +72,9 @@ public actor PortfolioService: PortfolioServicing {
 
     public init(
         initialBalance: Decimal = 100_000,
-        bistService: BistServicing = BistService(),
-        cryptoService: CryptoServicing = CryptoService(),
-        webSocketClient: WebSocketClienting = WebSocketClient(),
+        bistService: BistServicing,
+        cryptoService: CryptoServicing,
+        webSocketClient: WebSocketClienting,
         defaults: UserDefaults = .standard,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -85,6 +86,21 @@ public actor PortfolioService: PortfolioServicing {
         self.now = now
 
         bootstrapIfNeeded()
+    }
+
+    public static func live(
+        initialBalance: Decimal = 100_000,
+        defaults: UserDefaults = .standard,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) -> PortfolioService {
+        PortfolioService(
+            initialBalance: initialBalance,
+            bistService: BistService(),
+            cryptoService: CryptoService(),
+            webSocketClient: WebSocketClient(),
+            defaults: defaults,
+            now: now
+        )
     }
 
     deinit {

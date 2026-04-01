@@ -4,9 +4,6 @@
  * '5 dakika önce' veya '13:45' gibi kullanıcı dostu formatlara çevirir.
  * UI tasarımında zaman gösterimlerini standart hale getirir.
  */
-```
-
-
 import Foundation
 
 extension Date {

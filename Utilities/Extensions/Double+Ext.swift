@@ -4,8 +4,6 @@
  * kullanıcıya şık bir para birimi ve yüzde değişimi olarak 
  * göstermek için kullanılır. UI tarafındaki iş yükünü sıfıra indirir.
  */
-```
-
 import Foundation
 
 extension Double {

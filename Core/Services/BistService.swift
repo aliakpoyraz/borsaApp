@@ -1,24 +1,24 @@
 import Foundation
 
-protocol BistServicing: Sendable {
+public protocol BistServicing: Sendable {
     /// Returns BIST stocks using the "15 minute rule" (in-memory cache).
     func fetchStocks() async -> [Stock]
 }
 
 /// Mock BIST service (school-project friendly).
 /// - Note: Uses an in-memory cache with a 15 minute TTL.
-final class BistService: BistServicing, @unchecked Sendable {
+public final class BistService: BistServicing, @unchecked Sendable {
     private let ttl: TimeInterval = 15 * 60
     private let now: @Sendable () -> Date
 
     private var cachedAt: Date?
     private var cachedStocks: [Stock]?
 
-    init(now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(now: @escaping @Sendable () -> Date = { Date() }) {
         self.now = now
     }
 
-    func fetchStocks() async -> [Stock] {
+    public func fetchStocks() async -> [Stock] {
         if
             let cachedAt,
             let cachedStocks,

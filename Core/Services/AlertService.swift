@@ -45,7 +45,8 @@ public protocol AlertServicing: Sendable {
     ) async -> [Alert]
 }
 
-public actor AlertService: AlertServicing {
+@MainActor
+public final class AlertService: AlertServicing, @unchecked Sendable {
     // MARK: - Dependencies
     private let defaults: UserDefaults
     private let notificationCenter: UNUserNotificationCenter
@@ -59,12 +60,21 @@ public actor AlertService: AlertServicing {
     // MARK: - Init
     public init(
         defaults: UserDefaults = .standard,
-        notificationCenter: UNUserNotificationCenter = .current(),
+        notificationCenter: UNUserNotificationCenter,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.now = now
+    }
+
+    /// Convenience factory to keep `.current()` main-actor safe in Swift 6.
+    @MainActor
+    public static func live(
+        defaults: UserDefaults = .standard,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) -> AlertService {
+        AlertService(defaults: defaults, notificationCenter: .current(), now: now)
     }
 
     // MARK: - API

@@ -1,11 +1,19 @@
 import Foundation
 
-struct Stock: Codable, Identifiable, Hashable {
-  let symbol: String
-  let description: String
-  let lastPrice: String
-  let changePercent: String
-  let volume: String
+public struct Stock: Codable, Identifiable, Hashable, Sendable {
+  public let symbol: String
+  public let description: String
+  public let lastPrice: String
+  public let changePercent: String
+  public let volume: String
 
-  var id: String { symbol }
+  public var id: String { symbol }
+
+  public init(symbol: String, description: String, lastPrice: String, changePercent: String, volume: String) {
+    self.symbol = symbol
+    self.description = description
+    self.lastPrice = lastPrice
+    self.changePercent = changePercent
+    self.volume = volume
+  }
 }

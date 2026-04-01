@@ -4,10 +4,6 @@
  * geçici olarak tutulmasını sağlar. Böylece sekmeler arası geçişte
  * uygulama çok daha hızlı ve akıcı bir deneyim sunar.
  */
-```
-
-
-
 import Foundation
 
 /// In-memory cache for temporary API data (MarketData, News, etc.).
