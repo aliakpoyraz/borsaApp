@@ -1,128 +1,229 @@
 import Foundation
 
-protocol NewsServicing: Sendable {
-    /// Returns mock news from Crypto & BIST.
-    /// - Important: Each item will have its `sentiment` assigned by `analyzeSentiment`.
-    func fetchNews() async -> [News]
+// MARK: - NewsItem Model
+public struct NewsItem: Identifiable, Sendable {
+    public let id = UUID()
+    public let title: String
+    public let description: String
+    public let link: String
+    public let pubDate: Date
+    public let imageURL: String?
+    public let source: String
 
-    /// Basic keyword-based sentiment analysis over a title/content text.
-    func analyzeSentiment(_ text: String) async -> Sentiment
+    public init(title: String, description: String, link: String, pubDate: Date, imageURL: String?, source: String) {
+        self.title = title
+        self.description = description
+        self.link = link
+        self.pubDate = pubDate
+        self.imageURL = imageURL
+        self.source = source
+    }
 }
 
-/// Mock news service.
-final class NewsService: NewsServicing, Sendable {
-    private let now: @Sendable () -> Date
-    private let locale: Locale
-    private let positiveKeywords: [String]
-    private let negativeKeywords: [String]
+// MARK: - NewsService
+public final class NewsService: @unchecked Sendable {
+    public static let shared = NewsService()
 
-    init(
-        now: @escaping @Sendable () -> Date = { Date() },
-        locale: Locale = Locale(identifier: "tr_TR")
-    ) {
-        self.now = now
-        self.locale = locale
-        self.positiveKeywords = [
-            "rekor",
-            "artis",
-            "artış",
-            "yukselis",
-            "yükseliş",
-            "boga",
-            "boğa",
-            "kazanc",
-            "kazanç",
-            "pozitif"
-        ].map { $0.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: locale).lowercased(with: locale) }
+    // Kripto haberleri için RSS kaynakları
+    private let cryptoFeeds = [
+        ("https://www.investing.com/rss/news_301.rss", "Investing.com"),
+    ]
 
-        self.negativeKeywords = [
-            "dusus",
-            "düşüş",
-            "kriz",
-            "kayip",
-            "kayıp",
-            "satis",
-            "satış",
-            "negatif",
-            "ayi",
-            "ayı"
-        ].map { $0.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: locale).lowercased(with: locale) }
+    // Borsa/BIST haberleri için RSS kaynakları
+    private let bistFeeds = [
+        ("https://www.bloomberght.com/rss", "Bloomberg HT"),
+    ]
+
+    private var cryptoCache: [NewsItem] = []
+    private var bistCache: [NewsItem] = []
+    private var cryptoCachedAt: Date?
+    private var bistCachedAt: Date?
+    private let ttl: TimeInterval = 10 * 60  // 10 dakika
+
+    private init() {}
+
+    // MARK: - Public API
+    public func fetchCryptoNews() async -> [NewsItem] {
+        if let cached = cryptoCachedAt, Date().timeIntervalSince(cached) < ttl, !cryptoCache.isEmpty {
+            return cryptoCache
+        }
+        let items = await fetchFeeds(cryptoFeeds)
+        cryptoCache = items
+        cryptoCachedAt = Date()
+        return items
     }
 
-    func fetchNews() async -> [News] {
-        let items = makeMockNews()
+    // BIST ile ilgili haber filtresi — borsa, hisse, piyasa, ekonomi, TL, TCMB, enflasyon vs.
+    private let bistKeywords = [
+        "borsa", "hisse", "bist", "xist", "xu100", "piyasa", "tcmb", "faiz", "enflasyon",
+        "spk", "ekonomi", "yabancı yatırım", "döviz", "dolar", "euro", "hazine", "kbsm",
+        "bankac", "şirket", "ihraç", "tahvil", "emtia", "altin", "altın", "petrol",
+        "büyüme", "ihracat", "ithalat", "gsyh", "cari açık", "merkez bank",
+        "yatırım", "fon", "portföy", "temettü", "bono", "kredi", "aracı kurum"
+    ]
 
-        var result: [News] = []
-        result.reserveCapacity(items.count)
+    public func fetchBistNews() async -> [NewsItem] {
+        if let cached = bistCachedAt, Date().timeIntervalSince(cached) < ttl, !bistCache.isEmpty {
+            return bistCache
+        }
+        let items = await fetchFeeds(bistFeeds)
+        // Filter only finance/economy-related news
+        let filtered = items.filter { item in
+            let combined = (item.title + " " + item.description).lowercased()
+            return bistKeywords.contains(where: { combined.contains($0) })
+        }
+        let result = filtered.isEmpty ? Array(items.prefix(10)) : filtered
+        bistCache = result
+        bistCachedAt = Date()
+        return result
+    }
 
-        for item in items {
-            let sentiment = await analyzeSentiment("\(item.title) \(item.content)")
-            result.append(
-                News(
-                    title: item.title,
-                    content: item.content,
-                    source: item.source,
-                    date: item.date,
-                    sentiment: sentiment
-                )
-            )
+    // MARK: - RSS Parsing
+    private func fetchFeeds(_ feeds: [(String, String)]) async -> [NewsItem] {
+        var allItems: [NewsItem] = []
+
+        await withTaskGroup(of: [NewsItem].self) { group in
+            for (urlStr, source) in feeds {
+                group.addTask {
+                    return await self.fetchSingleFeed(urlStr: urlStr, source: source)
+                }
+            }
+            for await items in group {
+                allItems.append(contentsOf: items)
+            }
         }
 
-        return result.sorted(by: { $0.date > $1.date })
+        return allItems.sorted { $0.pubDate > $1.pubDate }
     }
 
-    func analyzeSentiment(_ text: String) async -> Sentiment {
-        let normalized = normalize(text)
+    private func fetchSingleFeed(urlStr: String, source: String) async -> [NewsItem] {
+        guard let url = URL(string: urlStr) else { return [] }
 
-        let hasPositive = positiveKeywords.contains(where: { normalized.contains($0) })
-        let hasNegative = negativeKeywords.contains(where: { normalized.contains($0) })
+        do {
+            var request = URLRequest(url: url)
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 10
 
-        if hasPositive, !hasNegative { return .positive }
-        if hasNegative, !hasPositive { return .negative }
-        return .neutral
+            let (data, _) = try await URLSession.shared.data(for: request)
+            return parseRSS(data: data, source: source)
+        } catch {
+            print("News fetch error (\(source)): \(error.localizedDescription)")
+            return []
+        }
     }
 
-    private func normalize(_ text: String) -> String {
-        text
-            .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: locale)
-            .lowercased(with: locale)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private func parseRSS(data: Data, source: String) -> [NewsItem] {
+        let parser = RSSParser(source: source)
+        return parser.parse(data: data)
+    }
+}
+
+// MARK: - Simple RSS XML Parser
+final class RSSParser: NSObject, XMLParserDelegate {
+    private let source: String
+    private var items: [NewsItem] = []
+
+    private var currentElement = ""
+    private var currentTitle = ""
+    private var currentLink = ""
+    private var currentPubDate = ""
+    private var currentDescription = ""
+    private var currentImageURL: String?
+    private var insideItem = false
+    private var currentCDATA = ""
+
+    private let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return f
+    }()
+
+    private let altDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    init(source: String) {
+        self.source = source
     }
 
-    private func makeMockNews() -> [(title: String, content: String, source: String, date: Date)] {
-        let base = now()
+    func parse(data: Data) -> [NewsItem] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return items
+    }
 
-        return [
-            (
-                title: "Bitcoin'de rekor yükseliş: Kurumsal talep artışta",
-                content: "BTC tarafında hacim artışı dikkat çekiyor. Analistler boğa senaryosunu güçlendiriyor.",
-                source: "Crypto Desk",
-                date: base.addingTimeInterval(-20 * 60)
-            ),
-            (
-                title: "Altcoinlerde satış baskısı: Piyasada kayıp derinleşiyor",
-                content: "Bazı majör altcoinlerde düşüş hızlandı. Kısa vadede volatilite yüksek.",
-                source: "Chain Pulse",
-                date: base.addingTimeInterval(-55 * 60)
-            ),
-            (
-                title: "BIST 100 gün ortasında yatay: Yatırımcılar veri bekliyor",
-                content: "Endeks tarafında belirgin bir yön oluşmadı. Seans içinde sınırlı dalgalanma görüldü.",
-                source: "BIST Günlük",
-                date: base.addingTimeInterval(-2 * 60 * 60)
-            ),
-            (
-                title: "Bankacılık hisselerinde artış: Pozitif bilanço beklentisi",
-                content: "Sektör hisselerinde kazanç eğilimi öne çıkıyor. Piyasa beklentileri toparlanıyor.",
-                source: "Piyasa Haber",
-                date: base.addingTimeInterval(-3 * 60 * 60)
-            ),
-            (
-                title: "Küresel risk iştahı zayıfladı: Kriz endişesi yeniden gündemde",
-                content: "Makro tarafta belirsizlik sürüyor. Ayı senaryoları yeniden konuşuluyor.",
-                source: "Makro Gündem",
-                date: base.addingTimeInterval(-5 * 60 * 60)
-            )
-        ]
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+        currentElement = elementName
+        currentCDATA = ""
+
+        if elementName == "item" {
+            insideItem = true
+            currentTitle = ""
+            currentLink = ""
+            currentPubDate = ""
+            currentDescription = ""
+            currentImageURL = nil
+        }
+
+        if insideItem, elementName == "enclosure", let url = attributeDict["url"] {
+            currentImageURL = url
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if insideItem {
+            currentCDATA += string
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        if insideItem, let str = String(data: CDATABlock, encoding: .utf8) {
+            currentCDATA += str
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        let text = currentCDATA.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if insideItem {
+            switch elementName {
+            case "title": currentTitle = text
+            case "link": if currentLink.isEmpty { currentLink = text }
+            case "pubDate": currentPubDate = text
+            case "description":
+                if currentDescription.isEmpty {
+                    currentDescription = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            case "image":
+                if currentImageURL == nil && text.hasPrefix("http") {
+                    currentImageURL = text
+                }
+            case "item":
+                if !currentTitle.isEmpty && !currentLink.isEmpty {
+                    let pubDate = dateFormatter.date(from: currentPubDate)
+                        ?? altDateFormatter.date(from: currentPubDate)
+                        ?? Date()
+
+                    let item = NewsItem(
+                        title: currentTitle,
+                        description: currentDescription,
+                        link: currentLink,
+                        pubDate: pubDate,
+                        imageURL: currentImageURL,
+                        source: source
+                    )
+                    items.append(item)
+                }
+                insideItem = false
+            default: break
+            }
+        }
+        currentCDATA = ""
     }
 }

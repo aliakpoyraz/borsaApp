@@ -38,7 +38,9 @@ public enum WidgetDefaultsKey {
     public static let favoriteCryptos = "widget_favoriteCryptos"
     public static let favoriteStocks = "widget_favoriteStocks"
     public static let portfolioAssets = "widget_portfolioAssets"
+    public static let totalPortfolioValue = "widget_totalPortfolioValue"
     public static let isBalanceHidden = "widget_isBalanceHidden"
+    public static let topFavorites = "widget_topFavorites"
 }
 
 // MARK: - Shared Data Models
@@ -73,87 +75,5 @@ public struct WidgetPortfolioItem: Codable {
     }
 }
 
-// MARK: - Widget Data Writer (called by main app)
+// MARK: - Shared Constants & Helpers - Replaced by WidgetDataBridge for R/W logic.
 
-public final class WidgetDataWriter {
-    public static let shared = WidgetDataWriter()
-    
-    private var defaults: UserDefaults? {
-        UserDefaults(suiteName: WidgetSharedData.appGroupID)
-    }
-    
-    private init() {}
-    
-    public func writeLoginState(isLoggedIn: Bool, userName: String?) {
-        defaults?.set(isLoggedIn, forKey: WidgetDefaultsKey.isLoggedIn)
-        defaults?.set(userName ?? "", forKey: WidgetDefaultsKey.userName)
-    }
-    
-    public func writeFavorites(cryptos: [WidgetFavoriteItem], stocks: [WidgetFavoriteItem]) {
-        let encoder = JSONEncoder()
-        if let cryptoData = try? encoder.encode(cryptos) {
-            defaults?.set(cryptoData, forKey: WidgetDefaultsKey.favoriteCryptos)
-        }
-        if let stockData = try? encoder.encode(stocks) {
-            defaults?.set(stockData, forKey: WidgetDefaultsKey.favoriteStocks)
-        }
-    }
-    
-    public func writePortfolio(assets: [WidgetPortfolioItem]) {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(assets) {
-            defaults?.set(data, forKey: WidgetDefaultsKey.portfolioAssets)
-        }
-    }
-}
-
-// MARK: - Widget Data Reader (called by widget extension)
-
-public final class WidgetDataReader {
-    public static let shared = WidgetDataReader.sharedInstance
-    private static let sharedInstance = WidgetDataReader()
-    
-    private var defaults: UserDefaults? {
-        UserDefaults(suiteName: WidgetSharedData.appGroupID)
-    }
-    
-    private init() {}
-    
-    public var isLoggedIn: Bool {
-        defaults?.bool(forKey: WidgetDefaultsKey.isLoggedIn) ?? false
-    }
-    
-    public var isBalanceHidden: Bool {
-        defaults?.bool(forKey: WidgetDefaultsKey.isBalanceHidden) ?? false
-    }
-    
-    public var userName: String {
-        defaults?.string(forKey: WidgetDefaultsKey.userName) ?? ""
-    }
-    
-    public var favoriteCryptos: [WidgetFavoriteItem] {
-        guard let data = defaults?.data(forKey: WidgetDefaultsKey.favoriteCryptos) else { return [] }
-        return (try? JSONDecoder().decode([WidgetFavoriteItem].self, from: data)) ?? []
-    }
-    
-    public var favoriteStocks: [WidgetFavoriteItem] {
-        guard let data = defaults?.data(forKey: WidgetDefaultsKey.favoriteStocks) else { return [] }
-        return (try? JSONDecoder().decode([WidgetFavoriteItem].self, from: data)) ?? []
-    }
-    
-    public var portfolioAssets: [WidgetPortfolioItem] {
-        guard let data = defaults?.data(forKey: WidgetDefaultsKey.portfolioAssets) else { return [] }
-        return (try? JSONDecoder().decode([WidgetPortfolioItem].self, from: data)) ?? []
-    }
-    
-    public var allFavorites: [WidgetFavoriteItem] {
-        favoriteCryptos + favoriteStocks
-    }
-    
-    // MARK: - Diagnostic Info
-    public var statusLabel: String {
-        let hasGroup = WidgetSharedData.sharedContainerURL != nil
-        let groupID = String(WidgetSharedData.appGroupID.suffix(12))
-        return "G:\(groupID) | C:\(hasGroup ? "OK" : "ERR")"
-    }
-}

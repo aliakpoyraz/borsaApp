@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 public enum WebSocketConnectionState: Sendable, Equatable {
     case connecting
@@ -10,13 +11,19 @@ public enum WebSocketConnectionState: Sendable, Equatable {
 public struct WebSocketPriceTick: Sendable, Hashable, Identifiable {
     public let symbol: String
     public let price: String
+    public let priceChangePercent: String?
+    public let priceChange: String?
+    public let quoteVolume: String?
     public let eventTime: Date?
 
     public var id: String { "\(symbol)-\(eventTime?.timeIntervalSince1970 ?? 0)-\(price)" }
 
-    public init(symbol: String, price: String, eventTime: Date?) {
+    public init(symbol: String, price: String, priceChangePercent: String? = nil, priceChange: String? = nil, quoteVolume: String? = nil, eventTime: Date? = nil) {
         self.symbol = symbol
         self.price = price
+        self.priceChangePercent = priceChangePercent
+        self.priceChange = priceChange
+        self.quoteVolume = quoteVolume
         self.eventTime = eventTime
     }
 }
@@ -26,8 +33,8 @@ public protocol WebSocketClienting: Sendable {
     func disconnect() async
     func subscribe(symbols: [String]) async
 
-    var stateStream: AsyncStream<WebSocketConnectionState> { get }
-    var priceStream: AsyncStream<WebSocketPriceTick> { get }
+    var statePublisher: AnyPublisher<WebSocketConnectionState, Never> { get }
+    var pricePublisher: AnyPublisher<WebSocketPriceTick, Never> { get }
 }
 
 /// Binance WebSocket client for live prices.
@@ -51,10 +58,14 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         }
     }
 
-    // MARK: - Public Streams
+    // MARK: - Public Publishers
 
-    public let stateStream: AsyncStream<WebSocketConnectionState>
-    public let priceStream: AsyncStream<WebSocketPriceTick>
+    public var statePublisher: AnyPublisher<WebSocketConnectionState, Never> {
+        stateSubject.eraseToAnyPublisher()
+    }
+    public var pricePublisher: AnyPublisher<WebSocketPriceTick, Never> {
+        priceSubject.eraseToAnyPublisher()
+    }
 
     // MARK: - Private
 
@@ -63,18 +74,18 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
 
-    private var stateContinuation: AsyncStream<WebSocketConnectionState>.Continuation?
-    private var priceContinuation: AsyncStream<WebSocketPriceTick>.Continuation?
+    private let stateSubject = CurrentValueSubject<WebSocketConnectionState, Never>(.disconnected)
+    private let priceSubject = PassthroughSubject<WebSocketPriceTick, Never>()
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
     private var pingLoopTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var connectingTask: Task<Void, Never>?
 
-    private var state: WebSocketConnectionState = .disconnected {
-        didSet {
-            stateContinuation?.yield(state)
-        }
+    private var state: WebSocketConnectionState {
+        get { stateSubject.value }
+        set { stateSubject.send(newValue) }
     }
 
     private var requestedDisconnect = false
@@ -82,35 +93,22 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     private var subscribeId: Int = 1
     private var reconnectAttempt: Int = 0
 
+    public static let shared = WebSocketClient()
+    
     public init(
         endpointURL: URL? = URL(string: "wss://stream.binance.com:9443/ws"),
         session: URLSession = .shared
     ) {
         self.endpointURL = endpointURL
         self.session = session
-
-        var stateCont: AsyncStream<WebSocketConnectionState>.Continuation?
-        self.stateStream = AsyncStream<WebSocketConnectionState> { cont in
-            stateCont = cont
-        }
-        self.stateContinuation = stateCont
-
-        var priceCont: AsyncStream<WebSocketPriceTick>.Continuation?
-        self.priceStream = AsyncStream<WebSocketPriceTick> { cont in
-            priceCont = cont
-        }
-        self.priceContinuation = priceCont
-
-        self.stateContinuation?.yield(.disconnected)
     }
 
     deinit {
         receiveLoopTask?.cancel()
         pingLoopTask?.cancel()
         reconnectTask?.cancel()
+        connectingTask?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
-        stateContinuation?.finish()
-        priceContinuation?.finish()
     }
 
     // MARK: - API
@@ -124,28 +122,42 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         }
 
         if case .connected = state { return }
-        if case .connecting = state { return }
-
-        reconnectTask?.cancel()
-        receiveLoopTask?.cancel()
-        pingLoopTask?.cancel()
-
-        state = .connecting
-
-        let ws = session.webSocketTask(with: endpointURL!)
-        task = ws
-        ws.resume()
-
-        state = .connected
-        reconnectAttempt = 0
-
-        receiveLoopTask = Task { await self.receiveLoop() }
-        pingLoopTask = Task { await self.pingLoop() }
-
-        // Re-subscribe after reconnect / connect.
-        if !subscriptionSet.isEmpty {
-            await sendSubscribe(symbols: Array(subscriptionSet))
+        
+        // If already connecting, wait for that task to finish
+        if let currentTask = connectingTask {
+            await currentTask.value
+            return
         }
+
+        connectingTask = Task {
+            reconnectTask?.cancel()
+            receiveLoopTask?.cancel()
+            pingLoopTask?.cancel()
+
+            state = .connecting
+
+            let ws = session.webSocketTask(with: endpointURL!)
+            task = ws
+            ws.resume()
+            
+            // Wait briefly for the connection handshake to stabilize
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            state = .connected
+            reconnectAttempt = 0
+
+            receiveLoopTask = Task { await self.receiveLoop() }
+            pingLoopTask = Task { await self.pingLoop() }
+
+            // Re-subscribe after reconnect / connect.
+            if !subscriptionSet.isEmpty {
+                await sendSubscribe(symbols: Array(subscriptionSet))
+            }
+            
+            connectingTask = nil
+        }
+        
+        await connectingTask?.value
     }
 
     public func disconnect() async {
@@ -291,15 +303,26 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     }
 
     private func handleIncomingData(_ data: Data) {
-        // Trade stream example:
+        // Ticker stream example (@ticker):
         // {
-        //   "e":"trade","E":171..., "s":"BTCUSDT",
-        //   "p":"65000.12", ...
+        //   "e": "24hrTicker",
+        //   "E": 123456789,
+        //   "s": "BNBBTC",
+        //   "p": "0.0015",
+        //   "P": "250.00", // 24h price change percent
+        //   "c": "0.0025", // Last price
+        //   ...
         // }
-        // Note: Binance also sends subscription acks like {"result":null,"id":1}.
-        if let trade = try? jsonDecoder.decode(BinanceTradeEvent.self, from: data) {
-            let eventTime = trade.eventTimeMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
-            priceContinuation?.yield(.init(symbol: trade.symbol.lowercased(), price: trade.price, eventTime: eventTime))
+        if let ticker = try? jsonDecoder.decode(BinanceTickerEvent.self, from: data) {
+            let eventTime = ticker.eventTimeMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+            priceSubject.send(.init(
+                symbol: ticker.symbol.lowercased(),
+                price: ticker.lastPrice,
+                priceChangePercent: ticker.priceChangePercent,
+                priceChange: ticker.priceChange,
+                quoteVolume: ticker.quoteVolume,
+                eventTime: eventTime
+            ))
             return
         }
     }
@@ -310,17 +333,36 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         let params = symbols
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }
-            .map { "\($0)@trade" }
+            .map { "\($0)@ticker" }
 
         guard !params.isEmpty else { return }
 
         let payload = BinanceSubscribeRequest(method: "SUBSCRIBE", params: params, id: nextSubscribeId())
 
-        guard let data = try? jsonEncoder.encode(payload) else { return }
-        do {
-            try await task.send(.data(data))
-        } catch {
-            await transitionToErrorAndMaybeReconnect(message: error.localizedDescription)
+        guard let data = try? jsonEncoder.encode(payload),
+              let jsonString = String(data: data, encoding: .utf8) else { return }
+        
+        // Use a small retry loop for the initial "Socket is not connected" race condition (POSIX 57)
+        var lastError: Swift.Error?
+        for attempt in 1...3 {
+            do {
+                if Task.isCancelled { return }
+                try await task.send(.string(jsonString))
+                return // Success!
+            } catch {
+                lastError = error
+                let nsError = error as NSError
+                if nsError.domain == NSPOSIXErrorDomain && nsError.code == 57 {
+                    // Socket not quite ready, wait and try again
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 300_000_000)
+                } else {
+                    break // Fatal error
+                }
+            }
+        }
+        
+        if let lastError {
+            await transitionToErrorAndMaybeReconnect(message: "Subscribe failed: \(lastError.localizedDescription)")
         }
     }
 
@@ -338,16 +380,22 @@ private struct BinanceSubscribeRequest: Encodable, Sendable {
     let id: Int
 }
 
-private struct BinanceTradeEvent: Decodable, Sendable {
+private struct BinanceTickerEvent: Decodable, Sendable {
     let eventType: String?
     let eventTimeMs: Int64?
     let symbol: String
-    let price: String
+    let priceChangePercent: String
+    let lastPrice: String
+    let priceChange: String
+    let quoteVolume: String
 
     enum CodingKeys: String, CodingKey {
         case eventType = "e"
         case eventTimeMs = "E"
         case symbol = "s"
-        case price = "p"
+        case priceChangePercent = "P"
+        case lastPrice = "c"
+        case priceChange = "p"
+        case quoteVolume = "q"
     }
 }

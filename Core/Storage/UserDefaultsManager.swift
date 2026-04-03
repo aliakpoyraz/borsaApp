@@ -151,7 +151,6 @@ public final class UserDefaultsManager: @unchecked Sendable {
             kind: asset.kind,
             symbol: symbol,
             quantity: asset.quantity,
-            averageBuyPrice: asset.averageBuyPrice,
             lastKnownPrice: asset.lastKnownPrice,
             lastUpdatedAt: asset.lastUpdatedAt
         )

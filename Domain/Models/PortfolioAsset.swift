@@ -12,9 +12,6 @@ public struct PortfolioAsset: Codable, Identifiable, Hashable, Sendable {
     /// Total position size.
     public var quantity: Decimal
 
-    /// Volume-weighted average buy price for the current open position.
-    public var averageBuyPrice: Decimal
-
     /// Last price observed by the portfolio service (REST / websocket).
     public var lastKnownPrice: Decimal?
     public var lastUpdatedAt: Date?
@@ -25,28 +22,33 @@ public struct PortfolioAsset: Codable, Identifiable, Hashable, Sendable {
         kind: PortfolioAssetKind,
         symbol: String,
         quantity: Decimal,
-        averageBuyPrice: Decimal,
         lastKnownPrice: Decimal? = nil,
         lastUpdatedAt: Date? = nil
     ) {
         self.kind = kind
         self.symbol = symbol.uppercased()
         self.quantity = quantity
-        self.averageBuyPrice = averageBuyPrice
         self.lastKnownPrice = lastKnownPrice
         self.lastUpdatedAt = lastUpdatedAt
     }
 }
 
-public struct PortfolioAssetPnL: Codable, Sendable, Hashable {
+public struct PortfolioAssetPnL: Codable, Identifiable, Sendable, Hashable {
+    public var id: String { symbol }
     public let symbol: String
     public let kind: PortfolioAssetKind
 
     public let quantity: Decimal
-    public let averageBuyPrice: Decimal
     public let currentPrice: Decimal
+    public let currentChangePercent: Decimal?
 
-    public let profitLossAmount: Decimal
-    public let profitLossPercent: Decimal
+    public var totalValue: Decimal { quantity * currentPrice }
+    
+    public func totalValueTL(rate: Decimal) -> Decimal {
+        if kind == .crypto {
+            return totalValue * rate
+        }
+        return totalValue
+    }
 }
 

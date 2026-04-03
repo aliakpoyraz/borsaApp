@@ -1,5 +1,7 @@
 import Foundation
+import UIKit
 import UserNotifications
+import Combine
 
 public struct Alert: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
@@ -43,10 +45,15 @@ public protocol AlertServicing: Sendable {
     func checkAlerts(
         priceProvider: @Sendable (_ symbols: [String]) async throws -> [String: Decimal]
     ) async -> [Alert]
+
+    /// Starts observing a price publisher to trigger alerts in real-time while in foreground.
+    func setupForegroundMonitoring(
+        pricePublisher: AnyPublisher<(symbol: String, price: Decimal, percent: Decimal?), Never>
+    )
 }
 
 @MainActor
-public final class AlertService: AlertServicing, @unchecked Sendable {
+public final class AlertService: NSObject, AlertServicing, UNUserNotificationCenterDelegate, @unchecked Sendable {
     // MARK: - Dependencies
     private let defaults: UserDefaults
     private let notificationCenter: UNUserNotificationCenter
@@ -56,6 +63,8 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
     private let alertsKey = "alerts.items.v1"
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var cancellables = Set<AnyCancellable>()
+    private var monitoringCancellable: AnyCancellable?
 
     // MARK: - Init
     public init(
@@ -66,6 +75,8 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.now = now
+        super.init()
+        self.notificationCenter.delegate = self
     }
 
     /// Convenience factory to keep `.current()` main-actor safe in Swift 6.
@@ -140,6 +151,8 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
         let normalizedPrices: [String: Decimal] = Dictionary(
             uniqueKeysWithValues: currentPrices.map { (normalize($0.key), $0.value) }
         )
+        
+        var alertsToTrigger: [Alert] = []
 
         for i in alerts.indices {
             guard alerts[i].isActive else { continue }
@@ -147,20 +160,27 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
             guard let current = normalizedPrices[symbol] else { continue }
 
             if shouldTrigger(alert: alerts[i], currentPrice: current) {
-                await triggerNotification(alert: alerts[i], currentPrice: current)
+                alertsToTrigger.append(alerts[i])
                 alerts[i].isActive = false
                 triggered.append(alerts[i])
             }
         }
 
+        // Save immediately before doing async work to prevent concurrent re-entry
         if !triggered.isEmpty {
             storeAlerts(alerts)
+        }
+        
+        // Now trigger the notifications asynchronously
+        for alert in alertsToTrigger {
+            let symbol = normalize(alert.symbol)
+            guard let currentPrice = normalizedPrices[symbol] else { continue }
+            await triggerNotification(alert: alert, currentPrice: currentPrice)
         }
 
         return triggered
     }
 
-    @discardableResult
     public func checkAlerts(
         priceProvider: @Sendable (_ symbols: [String]) async throws -> [String: Decimal]
     ) async -> [Alert] {
@@ -175,6 +195,19 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
         }
 
         return await checkAlerts(currentPrices: prices)
+    }
+
+    public func setupForegroundMonitoring(
+        pricePublisher: AnyPublisher<(symbol: String, price: Decimal, percent: Decimal?), Never>
+    ) {
+        monitoringCancellable = pricePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                guard let self = self else { return }
+                Task {
+                    await self.checkAlerts(currentPrices: [update.symbol: update.price])
+                }
+            }
     }
 
     // MARK: - Internals
@@ -222,6 +255,10 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
             "isAbove": alert.isAbove,
             "firedAt": now().timeIntervalSince1970
         ]
+        
+        if let attachment = await createAssetLogoAttachment(symbol: alert.symbol) {
+            content.attachments = [attachment]
+        }
 
         let request = UNNotificationRequest(
             identifier: "alert.\(alert.id.uuidString)",
@@ -235,5 +272,44 @@ public final class AlertService: AlertServicing, @unchecked Sendable {
     private func notificationBody(alert: Alert, currentPrice: Decimal) -> String {
         let direction = alert.isAbove ? "üstüne çıktı" : "altına indi"
         return "\(normalize(alert.symbol)) hedefi: \(alert.targetPrice) — mevcut: \(currentPrice). Fiyat hedefin \(direction)."
+    }
+
+    private func createAssetLogoAttachment(symbol: String) async -> UNNotificationAttachment? {
+        let cleanSymbol = symbol.replacingOccurrences(of: "USDT", with: "").lowercased()
+        let folderURL = FileManager.default.temporaryDirectory.appendingPathComponent("PushIcons")
+        let fileURL = folderURL.appendingPathComponent("\(cleanSymbol).png")
+        let fallbackURL = folderURL.appendingPathComponent("AppLogo.png")
+        
+        do {
+            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
+            
+            if let url = URL(string: "https://assets.coincap.io/assets/icons/\(cleanSymbol)@2x.png"),
+               let (data, response) = try? await URLSession.shared.data(from: url),
+               let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                try data.write(to: fileURL)
+                return try UNNotificationAttachment(identifier: cleanSymbol, url: fileURL, options: nil)
+            }
+            
+            guard let image = UIImage(named: "AppLogo"),
+                  let data = image.pngData() else {
+                return nil
+            }
+            
+            try data.write(to: fallbackURL)
+            return try UNNotificationAttachment(identifier: "AppLogo", url: fallbackURL, options: nil)
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Show banner and play sound even when app is in foreground
+        completionHandler([.banner, .sound, .list])
     }
 }

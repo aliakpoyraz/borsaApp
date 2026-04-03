@@ -1,131 +1,181 @@
 import Foundation
+import Combine
 
 public protocol PortfolioServicing: Sendable {
-    var initialBalance: Decimal { get }
-
-    func getBalance() async -> Decimal
     func getAssets() async -> [PortfolioAsset]
-    func getAssetsWithPnL() async throws -> [PortfolioAssetPnL]
+    func getAssetsWithValue() async throws -> [PortfolioAssetPnL]
 
     func buy(kind: PortfolioAssetKind, symbol: String, quantity: Decimal) async throws
     func sell(kind: PortfolioAssetKind, symbol: String, quantity: Decimal) async throws
+    func updateQuantity(kind: PortfolioAssetKind, symbol: String, newQuantity: Decimal) async throws
 
-    /// Starts listening live price stream (crypto). Safe to call multiple times.
     func startLivePrices() async
-
-    /// Subscribes websocket for given crypto symbols (e.g. "btcusdt").
     func subscribeCryptoLivePrices(symbols: [String]) async
-
-    /// Debug / dev convenience.
-    func resetToInitialState() async
+    
+    var priceUpdatePublisher: AnyPublisher<(symbol: String, price: Decimal, percent: Decimal?), Never> { get }
 }
 
 @MainActor
 public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
+    private let priceUpdateSubject = PassthroughSubject<(symbol: String, price: Decimal, percent: Decimal?), Never>()
+    
+    public var priceUpdatePublisher: AnyPublisher<(symbol: String, price: Decimal, percent: Decimal?), Never> {
+        priceUpdateSubject.eraseToAnyPublisher()
+    }
     public enum Error: Swift.Error, LocalizedError, Sendable {
         case invalidSymbol
         case invalidQuantity
         case priceUnavailable
-        case insufficientBalance(required: Decimal, available: Decimal)
         case insufficientQuantity(requested: Decimal, available: Decimal)
+        case syncError(String)
 
         public var errorDescription: String? {
             switch self {
-            case .invalidSymbol:
-                return "Symbol is invalid."
-            case .invalidQuantity:
-                return "Quantity must be greater than zero."
-            case .priceUnavailable:
-                return "Current price is unavailable."
-            case .insufficientBalance(let required, let available):
-                return "Insufficient balance. Required: \(required), available: \(available)."
-            case .insufficientQuantity(let requested, let available):
-                return "Insufficient quantity. Requested: \(requested), available: \(available)."
+            case .invalidSymbol: return "Geçersiz sembol."
+            case .invalidQuantity: return "Miktar 0'dan büyük olmalı."
+            case .priceUnavailable: return "Güncel fiyat alınamadı."
+            case .insufficientQuantity(let req, let avail): return "Yetersiz miktar. İstenen: \(req), Mevcut: \(avail)."
+            case .syncError(let msg): return "Bulut Senkronizasyon Hatası: \(msg)"
             }
         }
     }
 
-    // MARK: - Public
-
-    public let initialBalance: Decimal
-
-    // MARK: - Dependencies
-
+    // Dependencies
     private let bistService: BistServicing
     private let cryptoService: CryptoServicing
     private let webSocketClient: WebSocketClienting
-    private let defaults: UserDefaults
     private let now: @Sendable () -> Date
 
-    // MARK: - Storage keys
-
-    private let balanceKey = "portfolio.balance.v1"
-    private let assetsKey = "portfolio.assets.v1"
-    private let initializedKey = "portfolio.initialized.v1"
-
-    // MARK: - In-memory
-
-    private var priceCache: [String: (price: Decimal, updatedAt: Date?)] = [:] // key: "<kind>:<symbol>"
+    // In-memory
+    private var priceCache: [String: (price: Decimal, percent: Decimal?, updatedAt: Date?)] = [:]
+    private var localAssetsCache: [PortfolioAsset] = []
     private var livePriceTask: Task<Void, Never>?
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
 
     public init(
-        initialBalance: Decimal = 100_000,
         bistService: BistServicing,
         cryptoService: CryptoServicing,
         webSocketClient: WebSocketClienting,
-        defaults: UserDefaults = .standard,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.initialBalance = initialBalance
         self.bistService = bistService
         self.cryptoService = cryptoService
         self.webSocketClient = webSocketClient
-        self.defaults = defaults
         self.now = now
-
-        bootstrapIfNeeded()
     }
 
-    public static func live(
-        initialBalance: Decimal = 100_000,
-        defaults: UserDefaults = .standard,
-        now: @escaping @Sendable () -> Date = { Date() }
-    ) -> PortfolioService {
-        PortfolioService(
-            initialBalance: initialBalance,
-            bistService: BistService(),
-            cryptoService: CryptoService(),
-            webSocketClient: WebSocketClient(),
-            defaults: defaults,
-            now: now
-        )
+    private static let _shared = PortfolioService(
+        bistService: BistService.shared,
+        cryptoService: CryptoService.shared,
+        webSocketClient: WebSocketClient.shared
+    )
+
+    public static func live(now: @escaping @Sendable () -> Date = { Date() }) -> PortfolioService {
+        _shared
     }
+
+    public static var shared: PortfolioService { _shared }
 
     deinit {
         livePriceTask?.cancel()
     }
 
-    // MARK: - API
+    // MARK: - Token Management
 
-    public func getBalance() async -> Decimal {
-        loadBalance()
+    /// Returns current access token, auto-refreshing if expired (401).
+    private func validToken() async -> String {
+        let token = UserDefaults.standard.string(forKey: "supabaseAccessToken") ?? ""
+        return token
+    }
+
+    private func getAccessToken() -> String {
+        return UserDefaults.standard.string(forKey: "supabaseAccessToken") ?? ""
+    }
+
+    /// Makes an authenticated request, auto-retrying once if 401 (JWT expired).
+    private func authenticatedData(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var req = request
+        let token = getAccessToken()
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(SupabaseConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let httpRes = response as! HTTPURLResponse
+
+        if httpRes.statusCode == 401 {
+            // Token expired — try refresh
+            if let newToken = await AuthManager.shared.refreshTokenIfNeeded() {
+                var retryReq = req
+                retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryReq)
+                return (retryData, retryResponse as! HTTPURLResponse)
+            } else {
+                throw Error.syncError("Oturumunuz sona erdi. Lütfen tekrar giriş yapın.")
+            }
+        }
+        return (data, httpRes)
     }
 
     public func getAssets() async -> [PortfolioAsset] {
-        loadAssets()
+        let token = getAccessToken()
+        guard !token.isEmpty else { return [] }
+        guard let url = URL(string: "\(SupabaseConfig.supabaseURL)/rest/v1/portfolio_assets?select=*") else { return [] }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        do {
+            let (data, httpRes) = try await authenticatedData(for: request)
+            if httpRes.statusCode == 200,
+               let jsonObjects = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                var assets: [PortfolioAsset] = []
+                for row in jsonObjects {
+                    if let kindStr = row["kind"] as? String,
+                       let symbol = row["symbol"] as? String,
+                       let quantityDouble = row["quantity"] as? Double {
+                        let kind: PortfolioAssetKind = kindStr == "crypto" ? .crypto : .stock
+                        assets.append(PortfolioAsset(
+                            kind: kind,
+                            symbol: symbol,
+                            quantity: Decimal(quantityDouble)
+                        ))
+                    }
+                }
+                self.localAssetsCache = assets
+                return assets
+            }
+        } catch {
+            print("Portfolio fetch error: \(error.localizedDescription)")
+        }
+        return self.localAssetsCache
     }
 
-    public func getAssetsWithPnL() async throws -> [PortfolioAssetPnL] {
-        let assets = loadAssets()
+    public func getAssetsWithValue() async throws -> [PortfolioAssetPnL] {
+        let assets = await getAssets()
         var result: [PortfolioAssetPnL] = []
         result.reserveCapacity(assets.count)
+        
+        let cryptoSymbols = assets.filter { $0.kind == .crypto }.map { $0.symbol }
+        if !cryptoSymbols.isEmpty {
+            await subscribeCryptoLivePrices(symbols: cryptoSymbols)
+        }
 
         for asset in assets {
-            let current = try await currentPrice(for: asset.kind, symbol: asset.symbol)
-            let pnl = makePnL(asset: asset, currentPrice: current)
-            result.append(pnl)
+            var current = hitCacheOrFallback(for: asset.kind, symbol: asset.symbol)
+            if current.price == 0 {
+                current = (try? await currentPrice(for: asset.kind, symbol: asset.symbol, forceRefresh: true)) ?? (0, nil)
+            } else {
+                // Periodically force refresh stocks that don't have websocket updates
+                if asset.kind == .stock {
+                    current = (try? await currentPrice(for: asset.kind, symbol: asset.symbol, forceRefresh: true)) ?? current
+                }
+            }
+            result.append(PortfolioAssetPnL(
+                symbol: asset.symbol,
+                kind: asset.kind,
+                quantity: asset.quantity,
+                currentPrice: current.price,
+                currentChangePercent: current.percent
+            ))
         }
         return result
     }
@@ -135,40 +185,24 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         guard !symbol.isEmpty else { throw Error.invalidSymbol }
         guard quantity > 0 else { throw Error.invalidQuantity }
 
-        let price = try await currentPrice(for: kind, symbol: symbol)
-        let cost = price * quantity
+        let existingAsset = self.localAssetsCache.first { $0.kind == kind && $0.symbol == symbol }
+        let newQty = (existingAsset?.quantity ?? 0) + quantity
 
-        var balance = loadBalance()
-        guard balance >= cost else { throw Error.insufficientBalance(required: cost, available: balance) }
+        try await syncPortfolioAsset(kind: kind, symbol: symbol, quantity: newQty)
+        self.localAssetsCache = [] // Clear cache to force refresh
+    }
 
-        var assets = loadAssets()
-        if let idx = assets.firstIndex(where: { $0.kind == kind && $0.symbol == symbol }) {
-            var existing = assets[idx]
-            let oldQty = existing.quantity
-            let newQty = oldQty + quantity
-            let weightedAvg = (existing.averageBuyPrice * oldQty + price * quantity) / newQty
-
-            existing.quantity = newQty
-            existing.averageBuyPrice = weightedAvg
-            existing.lastKnownPrice = price
-            existing.lastUpdatedAt = now()
-            assets[idx] = existing
+    public func updateQuantity(kind: PortfolioAssetKind, symbol: String, newQuantity: Decimal) async throws {
+        let symbol = normalize(symbol)
+        guard !symbol.isEmpty else { throw Error.invalidSymbol }
+        guard newQuantity >= 0 else { throw Error.invalidQuantity }
+        
+        if newQuantity == 0 {
+            try await deletePortfolioAsset(kind: kind, symbol: symbol)
         } else {
-            assets.append(
-                PortfolioAsset(
-                    kind: kind,
-                    symbol: symbol,
-                    quantity: quantity,
-                    averageBuyPrice: price,
-                    lastKnownPrice: price,
-                    lastUpdatedAt: now()
-                )
-            )
+            try await syncPortfolioAsset(kind: kind, symbol: symbol, quantity: newQuantity)
         }
-
-        balance -= cost
-        storeBalance(balance)
-        storeAssets(assets)
+        self.localAssetsCache = [] // Clear cache to force refresh
     }
 
     public func sell(kind: PortfolioAssetKind, symbol: String, quantity: Decimal) async throws {
@@ -176,47 +210,91 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         guard !symbol.isEmpty else { throw Error.invalidSymbol }
         guard quantity > 0 else { throw Error.invalidQuantity }
 
-        let price = try await currentPrice(for: kind, symbol: symbol)
-        let proceeds = price * quantity
-
-        var assets = loadAssets()
-        guard let idx = assets.firstIndex(where: { $0.kind == kind && $0.symbol == symbol }) else {
+        guard let existing = self.localAssetsCache.first(where: { $0.kind == kind && $0.symbol == symbol }) else {
             throw Error.insufficientQuantity(requested: quantity, available: 0)
         }
 
-        var existing = assets[idx]
         guard existing.quantity >= quantity else {
             throw Error.insufficientQuantity(requested: quantity, available: existing.quantity)
         }
 
-        existing.quantity -= quantity
-        existing.lastKnownPrice = price
-        existing.lastUpdatedAt = now()
-
-        if existing.quantity == 0 {
-            assets.remove(at: idx)
+        let newQty = existing.quantity - quantity
+        
+        if newQty <= 0 {
+            try await deletePortfolioAsset(kind: kind, symbol: symbol)
         } else {
-            assets[idx] = existing
+            try await syncPortfolioAsset(kind: kind, symbol: symbol, quantity: newQty)
+        }
+        self.localAssetsCache = [] // Clear cache to force refresh
+    }
+    
+    // MARK: - Supabase Sync (Private)
+    
+    private func syncPortfolioAsset(kind: PortfolioAssetKind, symbol: String, quantity: Decimal) async throws {
+        guard !getAccessToken().isEmpty else { throw Error.syncError("Giriş yapmanız gerekiyor") }
+
+        let qDouble = NSDecimalNumber(decimal: quantity).doubleValue
+
+        // Simplified body: ONLY sending what is in your database (symbol, kind, quantity)
+        let body: [String: Any] = [
+            "symbol": symbol.uppercased(),
+            "kind": kind.rawValue,
+            "quantity": qDouble
+        ]
+        let bodyData = try? JSONSerialization.data(withJSONObject: body)
+
+        // PostgREST Upsert using 'on_conflict'
+        let urlStr = "\(SupabaseConfig.supabaseURL)/rest/v1/portfolio_assets?on_conflict=user_id,symbol,kind"
+        guard let url = URL(string: urlStr) else { return }
+        
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        req.httpBody = bodyData
+
+        let (data, httpRes) = try await authenticatedData(for: req)
+        if httpRes.statusCode >= 400 {
+            let errBody = String(data: data, encoding: .utf8) ?? ""
+            print("Portfolio Sync Error: \(errBody)")
+            throw Error.syncError("Varlık senkronizasyon hatası (\(httpRes.statusCode)): \(errBody)")
         }
 
-        var balance = loadBalance()
-        balance += proceeds
-        storeBalance(balance)
-        storeAssets(assets)
+        // Update local cache
+        let normalizedSym = symbol.uppercased()
+        if let idx = self.localAssetsCache.firstIndex(where: { $0.symbol == normalizedSym && $0.kind == kind }) {
+            self.localAssetsCache[idx].quantity = quantity
+        } else {
+            self.localAssetsCache.append(PortfolioAsset(kind: kind, symbol: normalizedSym, quantity: quantity))
+        }
     }
 
-    public func startLivePrices() async {
-        if livePriceTask != nil { return }
-
-        livePriceTask = Task { [weak self] in
-            guard let self else { return }
-            await self.webSocketClient.connect()
-
-            for await tick in self.webSocketClient.priceStream {
-                await self.ingestCryptoTick(tick)
-                if Task.isCancelled { return }
-            }
+    private func deletePortfolioAsset(kind: PortfolioAssetKind, symbol: String) async throws {
+        guard !getAccessToken().isEmpty else { return }
+        let urlStr = "\(SupabaseConfig.supabaseURL)/rest/v1/portfolio_assets?symbol=eq.\(symbol)&kind=eq.\(kind.rawValue)"
+        guard let url = URL(string: urlStr) else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let (_, httpRes) = try await authenticatedData(for: req)
+        if httpRes.statusCode >= 400 {
+            throw Error.syncError("Silme başarısız: \(httpRes.statusCode)")
         }
+        self.localAssetsCache.removeAll(where: { $0.symbol == symbol && $0.kind == kind })
+    }
+
+    // MARK: - Live Prices
+
+    private var cancellables = Set<AnyCancellable>()
+
+    public func startLivePrices() async {
+        webSocketClient.pricePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tick in
+                self?.ingestCryptoTick(tick)
+            }
+            .store(in: &cancellables)
+            
+        await webSocketClient.connect()
     }
 
     public func subscribeCryptoLivePrices(symbols: [String]) async {
@@ -224,184 +302,96 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         await webSocketClient.subscribe(symbols: symbols)
     }
 
-    public func resetToInitialState() async {
-        defaults.removeObject(forKey: initializedKey)
-        defaults.removeObject(forKey: balanceKey)
-        defaults.removeObject(forKey: assetsKey)
-        priceCache.removeAll()
-        bootstrapIfNeeded()
-    }
-
     // MARK: - Internals
 
-    private func bootstrapIfNeeded() {
-        if defaults.bool(forKey: initializedKey) { return }
-        defaults.set(true, forKey: initializedKey)
-        storeBalance(initialBalance)
-        storeAssets([])
-    }
-
-    private func loadBalance() -> Decimal {
-        if let data = defaults.data(forKey: balanceKey),
-           let value = try? decoder.decode(DecimalCodableBox.self, from: data)
-        {
-            return value.value
-        }
-        return initialBalance
-    }
-
-    private func storeBalance(_ value: Decimal) {
-        let box = DecimalCodableBox(value)
-        if let data = try? encoder.encode(box) {
-            defaults.set(data, forKey: balanceKey)
-        }
-    }
-
-    private func loadAssets() -> [PortfolioAsset] {
-        guard let data = defaults.data(forKey: assetsKey) else { return [] }
-        return (try? decoder.decode([PortfolioAsset].self, from: data)) ?? []
-    }
-
-    private func storeAssets(_ assets: [PortfolioAsset]) {
-        if let data = try? encoder.encode(assets) {
-            defaults.set(data, forKey: assetsKey)
-        }
-    }
-
-    private func currentPrice(for kind: PortfolioAssetKind, symbol: String) async throws -> Decimal {
+    private func currentPrice(for kind: PortfolioAssetKind, symbol: String, forceRefresh: Bool = false) async throws -> (price: Decimal, percent: Decimal?) {
         let symbol = normalize(symbol)
         let cacheKey = cacheKeyFor(kind: kind, symbol: symbol)
 
-        if let cached = priceCache[cacheKey]?.price {
-            return cached
-        }
+        if !forceRefresh, let cached = priceCache[cacheKey] { return (cached.price, cached.percent) }
 
         switch kind {
         case .stock:
-            let stocks = await bistService.fetchStocks()
-            guard let match = stocks.first(where: { normalize($0.symbol) == symbol }) else {
-                throw Error.priceUnavailable
+            let searchResults = await bistService.searchStocks(query: symbol)
+            if let match = searchResults.first(where: { normalize($0.symbol) == symbol }) {
+                guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
+                let percent = DecimalParser.parse(match.changePercent.replacingOccurrences(of: "%", with: ""))
+                priceCache[cacheKey] = (price, percent, now())
+                return (price, percent)
             }
-            guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
-            priceCache[cacheKey] = (price, now())
-            return price
+            
+            // Fallback to popular list
+            let stocks = await bistService.fetchStocks(forceRefresh: forceRefresh)
+            if let match = stocks.first(where: { normalize($0.symbol) == symbol }) {
+                guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
+                let percent = DecimalParser.parse(match.changePercent.replacingOccurrences(of: "%", with: ""))
+                priceCache[cacheKey] = (price, percent, now())
+                return (price, percent)
+            }
+            throw Error.priceUnavailable
 
         case .crypto:
-            let tickers = try await cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
-            guard let match = tickers.first(where: { normalize($0.symbol) == symbol }) else {
-                throw Error.priceUnavailable
-            }
+            let tickers = try await cryptoService.fetchAll24hTickers(cachePolicy: forceRefresh ? .refreshIgnoringCache : .useCacheIfAvailable)
+            guard let match = tickers.first(where: { normalize($0.symbol) == symbol }) else { throw Error.priceUnavailable }
             guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
-            priceCache[cacheKey] = (price, now())
-            return price
+            let percent = DecimalParser.parse(match.priceChangePercent)
+            priceCache[cacheKey] = (price, percent, now())
+            return (price, percent)
         }
     }
+    
+    private func hitCacheOrFallback(for kind: PortfolioAssetKind, symbol: String) -> (price: Decimal, percent: Decimal?) {
+        let key = cacheKeyFor(kind: kind, symbol: normalize(symbol))
+        if let cached = priceCache[key] {
+            return (cached.price, cached.percent)
+        }
+        return (0, nil)
+    }
 
-    private func ingestCryptoTick(_ tick: WebSocketPriceTick) async {
+    private func ingestCryptoTick(_ tick: WebSocketPriceTick) {
         let symbol = normalize(tick.symbol)
         guard let price = DecimalParser.parse(tick.price) else { return }
-
+        let percent = tick.priceChangePercent.flatMap { DecimalParser.parse($0) }
+        
         let key = cacheKeyFor(kind: .crypto, symbol: symbol)
-        priceCache[key] = (price, tick.eventTime ?? now())
-
-        var assets = loadAssets()
-        var changed = false
-        for i in assets.indices {
-            guard assets[i].kind == .crypto, normalize(assets[i].symbol) == symbol else { continue }
-            assets[i].lastKnownPrice = price
-            assets[i].lastUpdatedAt = tick.eventTime ?? now()
-            changed = true
-        }
-        if changed {
-            storeAssets(assets)
-        }
+        priceCache[key] = (price, percent, tick.eventTime ?? now())
+        
+        // Emit update to publisher
+        priceUpdateSubject.send((symbol: symbol, price: price, percent: percent))
     }
 
-    private func makePnL(asset: PortfolioAsset, currentPrice: Decimal) -> PortfolioAssetPnL {
-        let diff = currentPrice - asset.averageBuyPrice
-        let amount = diff * asset.quantity
-        let percent: Decimal
-        if asset.averageBuyPrice == 0 {
-            percent = 0
-        } else {
-            percent = (diff / asset.averageBuyPrice) * 100
-        }
-
-        return PortfolioAssetPnL(
-            symbol: asset.symbol,
-            kind: asset.kind,
-            quantity: asset.quantity,
-            averageBuyPrice: asset.averageBuyPrice,
-            currentPrice: currentPrice,
-            profitLossAmount: amount,
-            profitLossPercent: percent
-        )
-    }
-
-    private func normalize(_ symbol: String) -> String {
-        symbol
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-    }
-
-    private func cacheKeyFor(kind: PortfolioAssetKind, symbol: String) -> String {
-        "\(kind.rawValue):\(normalize(symbol))"
-    }
-}
-
-// MARK: - Codable helpers
-
-private struct DecimalCodableBox: Codable, Sendable {
-    let value: Decimal
-    init(_ value: Decimal) { self.value = value }
+    private func normalize(_ symbol: String) -> String { symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+    private func cacheKeyFor(kind: PortfolioAssetKind, symbol: String) -> String { "\(kind.rawValue):\(normalize(symbol))" }
 }
 
 private enum DecimalParser {
     static func parse(_ string: String) -> Decimal? {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        // Accept "312.40" and also tolerate commas in case UI formats it.
-        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
-
-        // Locale-independent Decimal parsing
+        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard !normalized.isEmpty else { return nil }
         return Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX"))
     }
 }
 
-// MARK: - Decimal arithmetic
-
+// Decimal Overrides
 private extension Decimal {
     static func + (lhs: Decimal, rhs: Decimal) -> Decimal {
-        var l = lhs
-        var r = rhs
-        var result = Decimal()
+        var l = lhs, r = rhs, result = Decimal()
         NSDecimalAdd(&result, &l, &r, .bankers)
         return result
     }
-
     static func - (lhs: Decimal, rhs: Decimal) -> Decimal {
-        var l = lhs
-        var r = rhs
-        var result = Decimal()
+        var l = lhs, r = rhs, result = Decimal()
         NSDecimalSubtract(&result, &l, &r, .bankers)
         return result
     }
-
     static func * (lhs: Decimal, rhs: Decimal) -> Decimal {
-        var l = lhs
-        var r = rhs
-        var result = Decimal()
+        var l = lhs, r = rhs, result = Decimal()
         NSDecimalMultiply(&result, &l, &r, .bankers)
         return result
     }
-
     static func / (lhs: Decimal, rhs: Decimal) -> Decimal {
-        var l = lhs
-        var r = rhs
-        var result = Decimal()
+        var l = lhs, r = rhs, result = Decimal()
         NSDecimalDivide(&result, &l, &r, .bankers)
         return result
     }
 }
-
