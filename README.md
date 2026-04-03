@@ -4,7 +4,9 @@ BorsaApp, Borsa İstanbul (BIST) ve Kripto Para piyasalarını tek bir çatı al
 
 Bu proje, bir öğrenci proje ödevi titizliğinde hazırlanmış olup, modern iOS geliştirme teknolojilerinin gerçek dünya senaryolarındaki kullanımını göstermektedir.
 
-![Ana Sayfa](Resources/Screenshots/home_screen.jpg)
+<p align="center">
+  <img src="Resources/Screenshots/home_screen.jpg" width="200">
+</p>
 
 ---
 
@@ -42,7 +44,9 @@ Burada **hibrit** bir yaklaşım kullanılmıştır.
 ### 1. Kripto Paralar (WebSocket & REST)
 Kripto verilerinde hız kritik olduğu için Binance altyapısı kullanılmıştır.
 
-![Kripto Piyasası](Resources/Screenshots/crypto_market.jpg)
+<p align="center">
+  <img src="Resources/Screenshots/crypto_market.jpg" width="200">
+</p>
 
 - **REST API (`CryptoService`):** Uygulama ilk açıldığında tüm varlık listesini ve 24 saatlik değişimleri çekmek için kullanılır.
 - **WebSocket (`WebSocketClient`):** `wss://stream.binance.com:9443/ws` adresi üzerinden Binance Ticker stream'ine bağlanır.
@@ -52,7 +56,9 @@ Kripto verilerinde hız kritik olduğu için Binance altyapısı kullanılmışt
 ### 2. Borsa İstanbul (REST & Anti-Block)
 Borsa İstanbul verileri Yahoo Finance üzerinden çekilir. 
 
-![Borsa İstanbul](Resources/Screenshots/stock_market.jpg)
+<p align="center">
+  <img src="Resources/Screenshots/stock_market.jpg" width="200">
+</p>
 
 - **Zorluk:** Yahoo, bot/scraping işlemlerini engellemek için sıkı bir "Rate Limit" ve "User-Agent" kontrolü uygular. Bunlara ek olarak ücretsiz bir API olduğu için verilerde 15 dakikalık gecikmeler sağlanabiliyor. Alternatif API'ler ücretli olduğu için mecburen Yahoo kullanmak zorunda kaldık.
 
@@ -83,7 +89,9 @@ Kullanıcının uygulamayı ilk açtığında karşılaştığı, uygulamanın t
 ### 2. Animasyonlu Splash Screen (Açılış)
 Uygulama başlatılırken marka kimliğini öne çıkaran özel bir **Custom Splash View** kullanılmıştır.
 
-![Splash Screen](Resources/Screenshots/splash_screen.jpg)
+<p align="center">
+  <img src="Resources/Screenshots/splash_screen.jpg" width="200">
+</p>
 
 - **Spring Animation:** Uygulama logosu "Spring" animasyonu ile yumuşak bir şekilde büyür ve bulanıklıktan (blur) netleşmeye geçer.
 - **Bağlantı Kontrolü:** Uygulama, internet bağlantısı sağlanana kadar Splash ekranında bekleyerek kullanıcının senkronize olmayan verilere bakmasını önler.
@@ -94,11 +102,10 @@ Uygulama başlatılırken marka kimliğini öne çıkaran özel bir **Custom Spl
 
 Uygulama, kullanıcıların takibini kolaylaştırmak için gelişmiş listeleme ve yönetim araçları sunar.
 
-````carousel
-![Favorilerim](Resources/Screenshots/favorites_tab.jpg)
-<!-- slide -->
-![Varlıklarım](Resources/Screenshots/portfolio_tab.jpg)
-````
+<p align="center">
+  <img src="Resources/Screenshots/favorites_tab.jpg" width="200">
+  <img src="Resources/Screenshots/portfolio_tab.jpg" width="200">
+</p>
 
 ---
 
@@ -106,11 +113,10 @@ Uygulama, kullanıcıların takibini kolaylaştırmak için gelişmiş listeleme
 
 Widget'lar uygulamanın dışında ayrı bir process olarak çalışır. Uygulama kapalıyken Widget'ın verinin ne olduğunu bilmesi için **App Groups** kullanılır.
 
-````carousel
-![Widget Favoriler](Resources/Screenshots/widget_favorites.jpg)
-<!-- slide -->
-![Widget Portföy](Resources/Screenshots/widget_portfolio.jpg)
-````
+<p align="center">
+  <img src="Resources/Screenshots/widget_favorites.jpg" width="200">
+  <img src="Resources/Screenshots/widget_portfolio.jpg" width="200">
+</p>
 
 - **App Group ID:** `group.com.borsaapp.shared`
 - **Senkronizasyon (`WidgetDataBridge`):** Ana uygulama her güncellendiğinde, "Favoriler" listesini günceller.
@@ -122,7 +128,9 @@ Widget'lar uygulamanın dışında ayrı bir process olarak çalışır. Uygulam
 
 Fiyat geçmişini kullanıcıya anlamlı bir şekilde sunmak için Apple'ın güncel **Swift Charts** kütüphanesi kullanılmıştır.
 
-![Grafik ve Detay](Resources/Screenshots/asset_detail.jpg)
+<p align="center">
+  <img src="Resources/Screenshots/asset_detail.jpg" width="200">
+</p>
 
 - **Dinamik Grafikler:** 1 Günlük, 1 Haftalık ve 1 Aylık periyotlarda fiyat değişimleri çizgi grafiği (Line Chart) olarak gösterilir.
 - **Uyarlanabilir Renkler:** Fiyatın açılış fiyatına göre artış veya azalış durumuna göre grafiğin rengi otomatik olarak yeşil veya kırmızıya döner.
