@@ -35,3 +35,7 @@ node_modules/
 
 # --- Swift Package Manager ---
 .swiftpm/xcode/
+
+# --- Auth & Configs ---
+GoogleService-Info.plist
+SupabaseConfig.swift

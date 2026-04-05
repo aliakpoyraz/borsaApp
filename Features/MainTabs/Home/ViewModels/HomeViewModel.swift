@@ -12,7 +12,11 @@ public final class HomeViewModel: ObservableObject {
     @Published public var isLoading: Bool = false
     @Published public var errorMessage: String?
     
-    // Dependencies
+    // Canlı Takip Verileri
+    private var assets: [PortfolioAssetPnL] = []
+    private var usdToTryRate: Decimal = 32.3
+    
+    // Bağımlılıklar (Dependencies)
     private let cryptoService: CryptoServicing
     private let bistService: BistServicing
     private let portfolioService: PortfolioServicing
@@ -31,26 +35,40 @@ public final class HomeViewModel: ObservableObject {
         self.webSocketClient = webSocketClient ?? WebSocketClient.shared
         
         setupLivePrices()
+        subscribeToPortfolioUpdates()
+    }
+    
+
+    private func subscribeToPortfolioUpdates() {
+        portfolioService.priceUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                self?.handlePortfolioPriceUpdate(symbol: update.symbol, price: update.price, percent: update.percent)
+            }
+            .store(in: &cancellables)
     }
     
     public func loadData() async {
         isLoading = true
         errorMessage = nil
 
-        // Load crypto and stocks in parallel
+        // Kripto ve hisseleri paralel olarak yükle
         async let cryptosTask = cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
         async let stocksTask = bistService.fetchStocks(forceRefresh: false)
         async let portfolioTask = portfolioService.getAssetsWithValue()
 
-        let (fetchedCryptos, fetchedStocks, assets) = await (try? cryptosTask, stocksTask, (try? portfolioTask) ?? [])
+        let (fetchedCryptos, fetchedStocks, assets) = await (cryptosTask, stocksTask, (try? portfolioTask) ?? [])
 
-        // Calculate balance and counts from real assets
+        // Gerçek varlıklardan bakiye ve sayıları hesapla
         let rate = await CurrencyService.shared.fetchUSDTTRYRate()
-        self.portfolioBalance = assets.reduce(Decimal(0)) { $0 + $1.totalValueTL(rate: rate) }
+        self.usdToTryRate = rate
+        self.assets = assets
+        recalculatePortfolioBalance()
+        
         self.portfolioStockCount = assets.filter { $0.kind == .stock }.count
         self.portfolioCryptoCount = assets.filter { $0.kind == .crypto }.count
 
-        let sortedCryptos = CryptoService.sortCryptos(fetchedCryptos ?? [])
+        let sortedCryptos = CryptoService.sortCryptos(fetchedCryptos)
         self.cryptos = Array(sortedCryptos.prefix(10))
         self.stocks = fetchedStocks
         isLoading = false
@@ -85,7 +103,36 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    // Format helpers
+    private func handlePortfolioPriceUpdate(symbol: String, price: Decimal, percent: Decimal?) {
+        let upperSymbol = symbol.uppercased()
+        var found = false
+        
+        for i in 0..<assets.count {
+            let assetSymbol = assets[i].symbol.uppercased()
+            // BTC vs BTCUSDT eşleşmesini kontrol et (Aynı mantık)
+            if assetSymbol == upperSymbol || (assets[i].kind == .crypto && (assetSymbol + "USDT" == upperSymbol || upperSymbol + "USDT" == assetSymbol)) {
+                let old = assets[i]
+                assets[i] = PortfolioAssetPnL(
+                    symbol: old.symbol,
+                    kind: old.kind,
+                    quantity: old.quantity,
+                    currentPrice: price,
+                    currentChangePercent: percent ?? old.currentChangePercent
+                )
+                found = true
+            }
+        }
+        
+        if found {
+            recalculatePortfolioBalance()
+        }
+    }
+    
+    private func recalculatePortfolioBalance() {
+        self.portfolioBalance = assets.reduce(Decimal(0)) { $0 + $1.totalValueTL(rate: usdToTryRate) }
+    }
+    
+    // Formatlama Yardımcıları (Format helpers)
     public func formatPrice(amount: Decimal) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency

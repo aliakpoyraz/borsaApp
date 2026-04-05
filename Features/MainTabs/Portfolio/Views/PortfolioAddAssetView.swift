@@ -40,16 +40,16 @@ public struct PortfolioAddAssetView: View {
 
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Asset type picker
+                        // Varlık tipi seçici
                         typePicker
 
-                        // Asset search
+                        // Varlık arama
                         searchSection
 
-                        // Quantity input
+                        // Miktar girişi
                         quantitySection
 
-                        // Add button
+                        // Ekleme butonu
                         addButton
                     }
                     .padding()
@@ -81,7 +81,7 @@ public struct PortfolioAddAssetView: View {
         }
     }
 
-    // MARK: - Type Picker
+    // MARK: - Tip Seçici (Type Picker)
     private var typePicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Varlık Tipi")
@@ -98,7 +98,7 @@ public struct PortfolioAddAssetView: View {
         }
     }
 
-    // MARK: - Asset Search
+    // MARK: - Varlık Arama (Asset Search)
     private var searchSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(assetType == .crypto ? "Kripto Para" : "Hisse Senedi")
@@ -108,10 +108,10 @@ public struct PortfolioAddAssetView: View {
                 .padding(.horizontal, 4)
 
             VStack(spacing: 0) {
-                // Selected badge or search field
+                // Seçili rozet veya arama alanı
                 if let selected = selectedSuggestion {
                     HStack {
-                        // Icon
+                        // İkon
                         assetIcon(symbol: selected.symbol.replacingOccurrences(of: "USDT", with: ""))
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -135,7 +135,7 @@ public struct PortfolioAddAssetView: View {
                     .background(Color(.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 } else {
-                    // Search field
+                    // Arama alanı
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.secondary)
@@ -156,7 +156,7 @@ public struct PortfolioAddAssetView: View {
                     .background(Color(.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                    // Suggestions dropdown
+                    // Öneri listesi (dropdown)
                     if !filteredSuggestions.isEmpty {
                         VStack(spacing: 0) {
                             ForEach(filteredSuggestions) { sug in
@@ -212,7 +212,7 @@ public struct PortfolioAddAssetView: View {
         }
     }
 
-    // MARK: - Quantity
+    // MARK: - Miktar Girişi (Quantity)
     private var quantitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Miktar")
@@ -239,7 +239,7 @@ public struct PortfolioAddAssetView: View {
         }
     }
 
-    // MARK: - Add Button
+    // MARK: - Ekleme Butonu (Add Button)
     private var addButton: some View {
         Button {
             Task {
@@ -276,18 +276,14 @@ public struct PortfolioAddAssetView: View {
         .padding(.top, 8)
     }
 
-    // MARK: - Load Symbols
+    // MARK: - Sembolleri Yükle (Load Symbols)
     private func loadSymbols() async {
         isLoadingSymbols = true
         if assetType == .crypto {
-            do {
-                let cryptos = try await CryptoService.shared.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
-                self.suggestions = cryptos
-                    .filter { $0.symbol.hasSuffix("USDT") }
-                    .map { AssetSuggestion(symbol: $0.symbol, name: ($0.symbol.replacingOccurrences(of: "USDT", with: "")) + "/USDT") }
-            } catch {
-                self.suggestions = []
-            }
+            let cryptos = await CryptoService.shared.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
+            self.suggestions = cryptos
+                .filter { $0.symbol.hasSuffix("USDT") }
+                .map { AssetSuggestion(symbol: $0.symbol, name: ($0.symbol.replacingOccurrences(of: "USDT", with: "")) + "/USDT") }
         } else {
             let stocks = await BistService.shared.fetchStocks(forceRefresh: false)
             self.suggestions = stocks.map { AssetSuggestion(symbol: $0.symbol, name: "\($0.symbol)/TL - \($0.description)") }

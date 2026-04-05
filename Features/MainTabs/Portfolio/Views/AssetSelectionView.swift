@@ -63,15 +63,11 @@ public struct AssetSelectionView: View {
     private func loadSymbols() async {
         isLoading = true
         if kind == .crypto {
-            do {
-                let cryptos = try await CryptoService.shared.fetchAll24hTickers(cachePolicy: .ignoreCache)
-                await MainActor.run {
-                    // Extract USDT cryptos mostly or just all
-                    self.allSymbols = cryptos.map { $0.symbol }.sorted()
-                    self.isLoading = false
-                }
-            } catch {
-                await MainActor.run { self.isLoading = false }
+            let cryptos = await CryptoService.shared.fetchAll24hTickers(cachePolicy: .ignoreCache)
+            await MainActor.run {
+                // Extract USDT cryptos mostly or just all
+                self.allSymbols = cryptos.map { $0.symbol }.sorted()
+                self.isLoading = false
             }
         } else {
             let stocks = await BistService.shared.fetchStocks(forceRefresh: false)

@@ -4,9 +4,10 @@ import UserNotifications
 struct ProfileView: View {
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
     @AppStorage("pushNotificationsEnabled") private var pushNotificationsEnabled = false
+    @State private var showingLogoutAlert = false
     @ObservedObject private var authManager = AuthManager.shared
     @State private var showingLogin = false
-    @State private var showingLogoutAlert = false
+    @State private var startWithRegister = false
     @State private var notifTestScheduled = false
     @State private var notifTestCountdown = 10
     
@@ -30,9 +31,6 @@ struct ProfileView: View {
 
                         // Appearance
                         appearanceSection
-
-                        // Notifications
-                        notificationsSection
                         
                         // Active Alerts
                         if authManager.isAuthenticated {
@@ -52,7 +50,7 @@ struct ProfileView: View {
             }
             .navigationTitle("Hesabım")
             .navigationBarTitleDisplayMode(.large)
-            .sheet(isPresented: $showingLogin) { LoginView() }
+            .sheet(isPresented: $showingLogin) { LoginView(startWithRegister: startWithRegister) }
             .alert("Çıkış Yap", isPresented: $showingLogoutAlert) {
                 Button("Çıkış Yap", role: .destructive) { authManager.logOut() }
                 Button("İptal", role: .cancel) {}
@@ -65,7 +63,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Account Card
+    // MARK: - Hesap Kartı (Account Card)
     private var accountCard: some View {
         HStack(spacing: 14) {
             ZStack {
@@ -100,9 +98,21 @@ struct ProfileView: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button("Giriş Yap") { showingLogin = true }
+                HStack(spacing: 12) {
+                    Button("Kayıt Ol") {
+                        startWithRegister = true
+                        showingLogin = true
+                    }
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.blue)
+
+                    Button("Giriş Yap") {
+                        startWithRegister = false
+                        showingLogin = true
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.blue)
+                }
             }
         }
         .padding(16)
@@ -110,7 +120,7 @@ struct ProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    // MARK: - Appearance Section
+    // MARK: - Görünüm Ayarları (Appearance Section)
     private var appearanceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(icon: "paintbrush.fill", title: "Görünüm", color: .blue)
@@ -169,53 +179,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Notifications Section
-    private var notificationsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(icon: "bell.fill", title: "Bildirimler", color: .orange)
-
-            VStack(spacing: 0) {
-                HStack(spacing: 14) {
-                    Image(systemName: "bell.badge.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.orange)
-                        .frame(width: 32, height: 32)
-                        .background(Color.orange.opacity(0.12))
-                        .clipShape(Circle())
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Fiyat Alarmları")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        Text("Arka planda lokal bildirim")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $pushNotificationsEnabled)
-                        .tint(.orange)
-                        .labelsHidden()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-
-                if pushNotificationsEnabled {
-                    Divider().padding(.leading, 62)
-                    Text("Belirlediğiniz eşik değerlere ulaşıldığında uygulamanız arka planda olsa dahi bildirim gönderilir.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                }
-            }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
-    // MARK: - Alerts Section
+    // MARK: - Alarmlar Bölümü (Alerts Section)
     private var alertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(icon: "bell.badge.fill", title: "Aktif Alarmlarım", color: .blue)
@@ -286,7 +250,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - About Section
+    // MARK: - Hakkında Bölümü (About Section)
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(icon: "info.circle.fill", title: "Hakkında", color: .blue)
@@ -326,38 +290,9 @@ struct ProfileView: View {
         .padding(.vertical, 13)
     }
 
-    // MARK: - Bottom Section
+    // MARK: - Alt Bölüm (Bottom Section)
     private var bottomSection: some View {
         VStack(spacing: 12) {
-            // Notification Test Button
-            Button {
-                Task { await scheduleTestNotification() }
-            } label: {
-                HStack {
-                    Image(systemName: notifTestScheduled ? "bell.badge.fill" : "bell.badge")
-                        .font(.subheadline)
-                    if notifTestScheduled {
-                        Text("Bildirim \(notifTestCountdown)s sonra gelecek...")
-                            .font(.subheadline)
-                    } else {
-                        Text("Alarm Testi (10 sn)")
-                            .font(.subheadline)
-                    }
-                    Spacer()
-                    if notifTestScheduled {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                }
-                .foregroundColor(notifTestScheduled ? .secondary : .indigo)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .padding(.horizontal, 16)
-                .background(Color.indigo.opacity(notifTestScheduled ? 0.05 : 0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .disabled(notifTestScheduled)
-
             // Debug reset
             Button {
                 UserDefaults.standard.set(false, forKey: "hasSeenOnboarding")
@@ -396,7 +331,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Helper
+    // MARK: - Yardımcı Fonksiyonlar (Helper)
     private func sectionHeader(icon: String, title: String, color: Color) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
@@ -410,39 +345,27 @@ struct ProfileView: View {
         .padding(.horizontal, 4)
     }
 
-    // MARK: - Notification Test
+    // MARK: - Bildirim Testi (Notification Test - Mantık korundu)
     @MainActor
     private func scheduleTestNotification() async {
         let center = UNUserNotificationCenter.current()
-
-        // Request permission if needed
         let status = await center.notificationSettings()
         if status.authorizationStatus == .notDetermined {
             _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         }
+        guard await center.notificationSettings().authorizationStatus == .authorized else { return }
 
-        guard await center.notificationSettings().authorizationStatus == .authorized else {
-            print("Bildirim izni verilmedi.")
-            return
-        }
-
-        // Schedule notification 10 seconds from now
         let content = UNMutableNotificationContent()
         content.title = "🔔 Fiyat Alarmı Test"
-        content.body = "BTC/USDT 85,000 $ hedef fiyatının üstüne çıktı! (Bu bir test bildirimidir)"
+        content.body = "Hedef fiyatın üstüne çıktı! (Bu bir test bildirimidir)"
         content.sound = .default
-        content.userInfo = ["test": true]
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
         let request = UNNotificationRequest(identifier: "alarm.test.\(UUID().uuidString)", content: content, trigger: trigger)
-
         try? await center.add(request)
 
-        // Show countdown state
         notifTestScheduled = true
         notifTestCountdown = 10
-
-        // Countdown timer
         for i in stride(from: 10, through: 1, by: -1) {
             notifTestCountdown = i
             try? await Task.sleep(nanoseconds: 1_000_000_000)

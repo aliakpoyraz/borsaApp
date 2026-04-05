@@ -1,7 +1,7 @@
 import Foundation
 import WidgetKit
 
-/// Handles all data exchange with the BorsaWidgets extension via App Group.
+/// App Group üzerinden BorsaWidgets uzantısı ile tüm veri alışverişini yönetir.
 public final class WidgetDataBridge {
     public static let shared = WidgetDataBridge()
     
@@ -12,7 +12,7 @@ public final class WidgetDataBridge {
 
     private init() {}
 
-    // MARK: - App State (Read)
+    // MARK: - Uygulama Durumu (Okuma)
     
     public var isLoggedIn: Bool { defaults?.bool(forKey: WidgetDefaultsKey.isLoggedIn) ?? false }
     public var isBalanceHidden: Bool { defaults?.bool(forKey: WidgetDefaultsKey.isBalanceHidden) ?? false }
@@ -46,7 +46,7 @@ public final class WidgetDataBridge {
         return (try? JSONDecoder().decode([WidgetFavoriteItem].self, from: data)) ?? []
     }
 
-    // MARK: - Sync (Write)
+    // MARK: - Senkronizasyon (Yazma)
 
     public func syncAuthState(isLoggedIn: Bool, userEmail: String) {
         defaults?.set(isLoggedIn, forKey: WidgetDefaultsKey.isLoggedIn)
@@ -79,7 +79,7 @@ public final class WidgetDataBridge {
             )
         }
 
-        // Calculate Top 3 Most Expensive (Unified USD Sort)
+        // En değerli ilk 3 varlığı hesapla (USD bazlı sıralama)
         let allItems = (cryptos + stocks).sorted { (a, b) -> Bool in
             return a.usdPrice > b.usdPrice
         }
@@ -97,10 +97,10 @@ public final class WidgetDataBridge {
         assets: [(symbol: String, kind: String, quantity: Decimal, totalValue: Decimal)],
         totalPortfolioValue: Decimal
     ) {
-        // Sort by totalValue descending so we show the most valuable ones
+        // En değerli olanları göstermek için toplam değere göre azalan sırada sırala
         let sortedSorted = assets.sorted { $0.totalValue > $1.totalValue }
         
-        // Take top 2 for the widget as requested
+        // İstenildiği üzere widget için en üstteki 2 tanesini al
         let topAssets = sortedSorted.prefix(2).map { a -> WidgetPortfolioItem in
             let qty = "\(a.quantity)"
             let val = formatTL(a.totalValue)
@@ -112,14 +112,14 @@ public final class WidgetDataBridge {
             defaults?.set(data, forKey: WidgetDefaultsKey.portfolioAssets)
         }
         
-        // Store the grand total separately
+        // Genel toplamı ayrı olarak depola
         defaults?.set(formatTL(totalPortfolioValue), forKey: WidgetDefaultsKey.totalPortfolioValue)
         
         reloadWidgets()
     }
     
     public func refreshNetworkData() async {
-        // Fetch real-time crypto prices to keep widgets updated without app launch
+        // Uygulama başlatılmadan widget'ları güncel tutmak için gerçek zamanlı kripto fiyatlarını çek
         let cryptos = self.favoriteCryptos
         var activeCryptoSymbols = Set(cryptos.map { $0.symbol })
         
@@ -128,7 +128,7 @@ public final class WidgetDataBridge {
         
         guard !activeCryptoSymbols.isEmpty else { return }
         
-        // Fetch from Binance API
+        // Binance API'den verileri çek
         guard let url = URL(string: "https://api.binance.com/api/v3/ticker/24hr") else { return }
         
         do {
@@ -144,7 +144,7 @@ public final class WidgetDataBridge {
                 }
             }
             
-            // Update Favorites
+            // Favorileri güncelle
             var updatedCryptos = cryptos
             for i in 0..<updatedCryptos.count {
                 let sym = updatedCryptos[i].symbol
@@ -157,25 +157,21 @@ public final class WidgetDataBridge {
             let encoder = JSONEncoder()
             if let c = try? encoder.encode(updatedCryptos) { defaults?.set(c, forKey: WidgetDefaultsKey.favoriteCryptos) }
             
-            // Update Portfolio Assets
+            // Portföy varlıklarını güncelle
             let updatedPortfolio = pAssets
             
             for i in 0..<updatedPortfolio.count {
                 let p = updatedPortfolio[i]
                 if let _ = priceMap[p.symbol], let _ = Double(p.quantity.replacingOccurrences(of: ",", with: ".")) {
-                    // Approximate Portfolio Value using a static rate if TL, but wait, crypto is in TL? 
-                    // To keep it simple, we don't recalculate the total value in TL here, we rely on the main app.
-                    // But if we want to show updated asset row prices: (Not technically storing per-asset live price in WidgetPortfolioItem, it's totalValue)
-                    // We can just rely on the main app for accurate crypto portfolio TL conversion to avoid having to fetch USDT-TRY rate in WidgetDataBridge.
                 }
             }
-            
+            // Not: Basitlik adına burada TL cinsinden toplam değeri yeniden hesaplamıyoruz, ana uygulamaya güveniyoruz.
         } catch {
-            // Ignore failure, we just use local cache
+            // Hata durumunda yerel önbelleği kullanıyoruz
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Yardımcı Metotlar (Helpers)
 
     private func formatTL(_ value: Decimal) -> String {
         let formatter = NumberFormatter()
@@ -188,7 +184,7 @@ public final class WidgetDataBridge {
     }
 
     private func reloadWidgets() {
-        // Force immediate persistence (though deprecated, helpful for App Groups in some iOS versions)
+        // Verileri hemen kalıcı hale getirmeye zorla (Bazı iOS sürümlerinde App Group'lar için yararlıdır)
         defaults?.synchronize()
         WidgetCenter.shared.reloadAllTimelines()
     }

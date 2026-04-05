@@ -108,10 +108,10 @@ public final class RESTClient: @unchecked Sendable {
         public var errorDescription: String? {
             switch self {
             case .invalidURL: return "Invalid URL."
-            case .transport(let e): return e.localizedDescription
+            case .transport(let e): return e.turkishDescription
             case .nonHTTPResponse: return "Non-HTTP response."
             case .httpStatus(let code, _): return "HTTP error status: \(code)."
-            case .decoding(let e): return "Decoding failed: \(e.localizedDescription)"
+            case .decoding(let e): return "Veri işleme hatası: \(e.turkishDescription)"
             }
         }
     }

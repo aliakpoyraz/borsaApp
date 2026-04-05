@@ -37,8 +37,8 @@ public protocol WebSocketClienting: Sendable {
     var pricePublisher: AnyPublisher<WebSocketPriceTick, Never> { get }
 }
 
-/// Binance WebSocket client for live prices.
-/// Endpoint: wss://stream.binance.com:9443/ws
+/// Canlı fiyatlar için Binance WebSocket istemcisi.
+/// Uç Nokta (Endpoint): wss://stream.binance.com:9443/ws
 @MainActor
 public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     public enum Error: Swift.Error, LocalizedError, Sendable {
@@ -58,7 +58,7 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         }
     }
 
-    // MARK: - Public Publishers
+    // MARK: - Genel Yayıncılar (Publishers)
 
     public var statePublisher: AnyPublisher<WebSocketConnectionState, Never> {
         stateSubject.eraseToAnyPublisher()
@@ -67,9 +67,20 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         priceSubject.eraseToAnyPublisher()
     }
 
-    // MARK: - Private
+    // MARK: - Özel (Private) Özellikler
 
-    private let endpointURL: URL?
+    private let baseWebSocketURLs = [
+        "wss://stream1.binance.com:443/ws",
+        "wss://stream.binance.me:443/ws",
+        "wss://stream.binance.me:9443/ws",
+        "wss://api-gcp.binance.com/ws",
+        "wss://stream.binance.com:443/ws",
+        "wss://stream.binance.com:9443/ws"
+    ]
+    private var currentURLIndex = 0
+    private var lastMessageReceivedAt: Date?
+    private var watchdogTask: Task<Void, Never>?
+
     private let session: URLSession
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -89,17 +100,13 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     }
 
     private var requestedDisconnect = false
-    private var subscriptionSet = Set<String>() // normalized symbols (lowercased)
+    private var subscriptionSet = Set<String>() // normalize edilmiş semboller (küçük harf)
     private var subscribeId: Int = 1
     private var reconnectAttempt: Int = 0
 
     public static let shared = WebSocketClient()
     
-    public init(
-        endpointURL: URL? = URL(string: "wss://stream.binance.com:9443/ws"),
-        session: URLSession = .shared
-    ) {
-        self.endpointURL = endpointURL
+    public init(session: URLSession = .shared) {
         self.session = session
     }
 
@@ -108,22 +115,24 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         pingLoopTask?.cancel()
         reconnectTask?.cancel()
         connectingTask?.cancel()
+        watchdogTask?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
     }
 
-    // MARK: - API
+    // MARK: - API Metotları
 
     public func connect() async {
         requestedDisconnect = false
 
-        guard endpointURL != nil else {
+        guard currentURLIndex < baseWebSocketURLs.count,
+              let url = URL(string: baseWebSocketURLs[currentURLIndex]) else {
             await transitionToErrorAndMaybeReconnect(message: Error.invalidEndpoint.localizedDescription)
             return
         }
 
         if case .connected = state { return }
         
-        // If already connecting, wait for that task to finish
+        // Zaten bağlanılıyorsa, o görevin bitmesini bekle
         if let currentTask = connectingTask {
             await currentTask.value
             return
@@ -133,14 +142,15 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
             reconnectTask?.cancel()
             receiveLoopTask?.cancel()
             pingLoopTask?.cancel()
+            watchdogTask?.cancel()
 
             state = .connecting
 
-            let ws = session.webSocketTask(with: endpointURL!)
+            let ws = session.webSocketTask(with: url)
             task = ws
             ws.resume()
             
-            // Wait briefly for the connection handshake to stabilize
+            // Bağlantı el sıkışmasının (handshake) stabilize olması için kısa bir süre bekle
             try? await Task.sleep(nanoseconds: 500_000_000)
 
             state = .connected
@@ -148,8 +158,9 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
 
             receiveLoopTask = Task { await self.receiveLoop() }
             pingLoopTask = Task { await self.pingLoop() }
+            watchdogTask = Task { await self.watchdogLoop() }
 
-            // Re-subscribe after reconnect / connect.
+            // Yeniden bağlantı veya bağlantı sonrası abonelikleri yenile.
             if !subscriptionSet.isEmpty {
                 await sendSubscribe(symbols: Array(subscriptionSet))
             }
@@ -169,6 +180,9 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
 
         pingLoopTask?.cancel()
         pingLoopTask = nil
+        
+        watchdogTask?.cancel()
+        watchdogTask = nil
 
         if let task {
             task.cancel(with: .normalClosure, reason: nil)
@@ -178,8 +192,8 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         state = .disconnected
     }
 
-    /// Subscribes to symbols like "btcusdt", "ethusdt".
-    /// Under the hood this subscribes to `<symbol>@trade` streams (live trade prices).
+    /// "btcusdt", "ethusdt" gibi sembollere abone olur.
+    /// Arka planda <symbol>@ticker akışlarına abone olur (canlı fiyat değişimleri).
     public func subscribe(symbols: [String]) async {
         let normalized = symbols
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -188,7 +202,7 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         for s in normalized { subscriptionSet.insert(s) }
 
         guard (ifCaseConnected(state)) else {
-            // If not connected yet, we'll subscribe automatically when connected.
+            // Henüz bağlanmadıysa, bağlantı kurulduğunda otomatik olarak abone olunacak.
             if ifCaseDisconnected(state) || (ifCaseError(state)) { await connect() }
             return
         }
@@ -196,7 +210,7 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         await sendSubscribe(symbols: normalized)
     }
 
-    // MARK: - Internals
+    // MARK: - Dahili Yardımcı Metotlar
 
     private func ifCaseError(_ state: WebSocketConnectionState) -> Bool {
         if case .error = state { return true }
@@ -231,15 +245,36 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         reconnectTask = Task {
             guard !requestedDisconnect else { return }
 
-            // Exponential backoff with cap: 1s, 2s, 4s, 8s, 16s, 30s...
+            // Üstel geri çekilme (exponential backoff)
             reconnectAttempt += 1
             let base: Double = 1
             let cap: Double = 30
             let delay = min(cap, base * pow(2, Double(max(0, reconnectAttempt - 1))))
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
 
+            currentURLIndex = (currentURLIndex + 1) % baseWebSocketURLs.count
+            print("WebSocketClient: Yeni adrese geçiliyor [\(currentURLIndex)]: \(baseWebSocketURLs[currentURLIndex])")
+            
             guard !requestedDisconnect else { return }
             await connect()
+        }
+    }
+    
+    private func watchdogLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+            if Task.isCancelled { return }
+
+            guard ifCaseConnected(state) else { continue }
+            
+            let lastTime = lastMessageReceivedAt ?? Date()
+            
+            // 20 saniye veri gelmezse bağlantıyı "zombi" kabul et
+            if Date().timeIntervalSince(lastTime) > 20 {
+                print("WebSocketClient: Bağlantı ölü algılandı (Veri akışı yok). Yeniden bağlanılıyor...")
+                await transitionToErrorAndMaybeReconnect(message: "Zombie connection detected")
+                return
+            }
         }
     }
 
@@ -303,17 +338,18 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     }
 
     private func handleIncomingData(_ data: Data) {
-        // Ticker stream example (@ticker):
+        // Ticker akış örneği (@ticker):
         // {
         //   "e": "24hrTicker",
         //   "E": 123456789,
         //   "s": "BNBBTC",
         //   "p": "0.0015",
-        //   "P": "250.00", // 24h price change percent
-        //   "c": "0.0025", // Last price
+        //   "P": "250.00", // 24 saatlik fiyat değişim yüzdesi
+        //   "c": "0.0025", // Son fiyat
         //   ...
         // }
         if let ticker = try? jsonDecoder.decode(BinanceTickerEvent.self, from: data) {
+            lastMessageReceivedAt = Date()
             let eventTime = ticker.eventTimeMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
             priceSubject.send(.init(
                 symbol: ticker.symbol.lowercased(),
@@ -342,7 +378,7 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
         guard let data = try? jsonEncoder.encode(payload),
               let jsonString = String(data: data, encoding: .utf8) else { return }
         
-        // Use a small retry loop for the initial "Socket is not connected" race condition (POSIX 57)
+        // Başlangıçtaki "Socket is not connected" yarış durumu (POSIX 57) için küçük bir yeniden deneme döngüsü kullan
         var lastError: Swift.Error?
         for attempt in 1...3 {
             do {
@@ -353,10 +389,10 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
                 lastError = error
                 let nsError = error as NSError
                 if nsError.domain == NSPOSIXErrorDomain && nsError.code == 57 {
-                    // Socket not quite ready, wait and try again
+                    // Soket henüz tam hazır değil, bekle ve tekrar dene
                     try? await Task.sleep(nanoseconds: UInt64(attempt) * 300_000_000)
                 } else {
-                    break // Fatal error
+                    break // Kritik hata
                 }
             }
         }
@@ -372,7 +408,7 @@ public final class WebSocketClient: WebSocketClienting, @unchecked Sendable {
     }
 }
 
-// MARK: - Binance DTOs
+// MARK: - Binance Veri Transfer Nesneleri (DTO'lar)
 
 private struct BinanceSubscribeRequest: Encodable, Sendable {
     let method: String

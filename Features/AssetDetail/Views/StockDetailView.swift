@@ -9,13 +9,15 @@ struct StockDetailView: View {
     @State private var historicalData: [Double] = []
     @State private var isChartLoading = true
     @State private var showLoginPrompt = false
+    @ObservedObject private var network = NetworkMonitor.shared
     
-    // Alerts
+    // Alarmlar
     @State private var activeAlerts: [Alert] = []
     private let alertService = AlertService.live()
     private let trendService = TrendService.shared
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
-    // REMOVED: Non-working financials
+    // KALDIRILDI: Çalışmayan finansal veriler
 
 
     private var isPositive: Bool { stock.changePercent.hasPrefix("+") }
@@ -37,6 +39,21 @@ struct StockDetailView: View {
             Color(.systemGroupedBackground).ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
+                    if !network.isConnected {
+                        HStack(spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                            Text("İnternet bağlantınız yok")
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                    }
+                    
                     heroHeader
                     priceCard
                     chartSection
@@ -70,7 +87,7 @@ struct StockDetailView: View {
         }
     }
 
-    // MARK: - Hero Header
+    // MARK: - Ana Başlık (Hero Header)
     private var heroHeader: some View {
         HStack(spacing: 14) {
             ZStack {
@@ -88,7 +105,7 @@ struct StockDetailView: View {
                     Text("\(stock.symbol)/TL")
                         .font(.headline)
                     
-                    // Trend Badge
+                    // Trend Rozeti (Badge)
                     HStack(spacing: 4) {
                         Image(systemName: marketTrend.icon)
                         Text(marketTrend.rawValue)
@@ -109,7 +126,7 @@ struct StockDetailView: View {
             Spacer()
 
             HStack(spacing: 12) {
-                // Alert Button
+                // Alarm Butonu
                 actionButton(icon: "bell.badge.fill", color: .orange) {
                     if authManager.isAuthenticated {
                         showingAlertPopup = true
@@ -118,9 +135,15 @@ struct StockDetailView: View {
                     }
                 }
 
-                // Favorite Button
+                // Favori Butonu
                 Button {
-                    favorites.toggleStockFavorite(stock.symbol)
+                    if authManager.isAuthenticated {
+                        impactFeedback.prepare()
+                        impactFeedback.impactOccurred()
+                        favorites.toggleStockFavorite(stock.symbol)
+                    } else {
+                        showLoginPrompt = true
+                    }
                 } label: {
                     Image(systemName: favorites.isStockFavorite(stock.symbol) ? "heart.fill" : "heart")
                         .font(.title3)
@@ -134,7 +157,7 @@ struct StockDetailView: View {
         .padding(.horizontal)
     }
 
-    // MARK: - Active Alerts
+    // MARK: - Aktif Alarmlar Section
     private var activeAlertsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -166,7 +189,7 @@ struct StockDetailView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Fiyat ₺\(String(describing: alert.targetPrice)) \(alert.isAbove ? "üstüne çıkınca" : "altına inince")")
                                     .font(.subheadline.weight(.medium))
-                                Text("Lokal Bildirim")
+                                Text("Fiyat Bildirimi")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -212,7 +235,7 @@ struct StockDetailView: View {
         }
     }
 
-    // MARK: - Price Card
+    // MARK: - Fiyat Kartı
     private var priceCard: some View {
         VStack(spacing: 8) {
             Text(formatPrice(stock.lastPrice))
@@ -239,7 +262,7 @@ struct StockDetailView: View {
         .padding(.horizontal)
     }
 
-    // MARK: - Chart Section
+    // MARK: - Grafik Bölümü (Chart Section)
     private var chartSection: some View {
         VStack(spacing: 12) {
             Picker("Zaman Dilimi", selection: $selectedPeriod) {
@@ -278,7 +301,7 @@ struct StockDetailView: View {
         }
     }
 
-    // MARK: - Market Data
+    // MARK: - Piyasa Verileri (Market Data)
     private var marketDataGrid: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
@@ -290,7 +313,7 @@ struct StockDetailView: View {
             }
             .padding(.horizontal)
 
-            // Trend card
+            // Trend kartı
             trendCard(trend: marketTrend)
                 .padding(.horizontal)
 
@@ -352,7 +375,7 @@ struct StockDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    // REMOVED legacy trend helpers
+    // KALDIRILDI: Eski trend yardımcıları
 
     private func loadHistoricalData() {
         Task {

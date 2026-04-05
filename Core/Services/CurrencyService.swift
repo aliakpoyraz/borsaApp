@@ -7,9 +7,9 @@ public protocol CurrencyServicing: Sendable {
 public final class CurrencyService: CurrencyServicing, @unchecked Sendable {
     public static let shared = CurrencyService()
     
-    private var cachedRate: Decimal = 32.5 // Fallback if API fails
+    private var cachedRate: Decimal = 44.50 // API başarısız olursa kullanılacak yedek (fallback) değer
     private var lastFetchDate: Date?
-    private let cacheTTL: TimeInterval = 300 // 5 minutes
+    private let cacheTTL: TimeInterval = 300 // 5 dakika (Önbellek süresi)
     
     public init() {}
     

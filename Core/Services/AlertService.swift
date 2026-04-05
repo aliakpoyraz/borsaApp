@@ -35,38 +35,40 @@ public protocol AlertServicing: Sendable {
     func setAlertActive(id: UUID, isActive: Bool) async
     func removeAllAlerts() async
 
-    /// Compare current prices with saved alerts and trigger a local notification if target reached.
-    /// - Note: This method deactivates triggered alerts to prevent repeated notifications.
+    /// Mevcut fiyatları kayıtlı alarmlarla karşılaştırır ve hedef fiyata ulaşıldığında yerel bildirim tetikler.
+    /// - Not: Bu yöntem, mükerrer bildirimleri önlemek için tetiklenen alarmları devre dışı bırakır.
     @discardableResult
     func checkAlerts(currentPrices: [String: Decimal]) async -> [Alert]
 
-    /// Convenience overload to fetch prices from an external market service/provider.
+    /// Harici bir piyasa servisi/sağlayıcısından fiyatları çekmek için kolaylık sağlayan metot.
     @discardableResult
     func checkAlerts(
         priceProvider: @Sendable (_ symbols: [String]) async throws -> [String: Decimal]
     ) async -> [Alert]
 
-    /// Starts observing a price publisher to trigger alerts in real-time while in foreground.
+    /// Uygulama ön plandayken alarmları gerçek zamanlı tetiklemek için bir fiyat yayıncısını (publisher) gözlemlemeye başlar.
     func setupForegroundMonitoring(
         pricePublisher: AnyPublisher<(symbol: String, price: Decimal, percent: Decimal?), Never>
     )
+    
+    func syncAlertSubscriptions()
 }
 
 @MainActor
 public final class AlertService: NSObject, AlertServicing, UNUserNotificationCenterDelegate, @unchecked Sendable {
-    // MARK: - Dependencies
+    // MARK: - Bağımlılıklar
     private let defaults: UserDefaults
     private let notificationCenter: UNUserNotificationCenter
     private let now: @Sendable () -> Date
 
-    // MARK: - Storage
+    // MARK: - Depolama
     private let alertsKey = "alerts.items.v1"
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var cancellables = Set<AnyCancellable>()
     private var monitoringCancellable: AnyCancellable?
 
-    // MARK: - Init
+    // MARK: - Başlatıcı
     public init(
         defaults: UserDefaults = .standard,
         notificationCenter: UNUserNotificationCenter,
@@ -79,7 +81,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         self.notificationCenter.delegate = self
     }
 
-    /// Convenience factory to keep `.current()` main-actor safe in Swift 6.
+    /// Swift 6'da .current() kullanımını main-actor güvenli tutmak için yardımcı fabrika metodu.
     @MainActor
     public static func live(
         defaults: UserDefaults = .standard,
@@ -88,7 +90,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         AlertService(defaults: defaults, notificationCenter: .current(), now: now)
     }
 
-    // MARK: - API
+    // MARK: - API Metotları
 
     public func requestNotificationAuthorizationIfNeeded() async {
         let settings = await notificationCenter.notificationSettings()
@@ -123,12 +125,14 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         }
 
         storeAlerts(alerts)
+        syncAlertSubscriptions()
     }
 
     public func removeAlert(id: UUID) async {
         var alerts = loadAlerts()
         alerts.removeAll(where: { $0.id == id })
         storeAlerts(alerts)
+        syncAlertSubscriptions()
     }
 
     public func setAlertActive(id: UUID, isActive: Bool) async {
@@ -136,6 +140,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         guard let idx = alerts.firstIndex(where: { $0.id == id }) else { return }
         alerts[idx].isActive = isActive
         storeAlerts(alerts)
+        syncAlertSubscriptions()
     }
 
     public func removeAllAlerts() async {
@@ -147,7 +152,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         var alerts = loadAlerts()
         var triggered: [Alert] = []
 
-        // Normalize incoming prices for symbol matching
+        // Sembol eşleşmesi için gelen fiyatları normalize et
         let normalizedPrices: [String: Decimal] = Dictionary(
             uniqueKeysWithValues: currentPrices.map { (normalize($0.key), $0.value) }
         )
@@ -166,12 +171,12 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
             }
         }
 
-        // Save immediately before doing async work to prevent concurrent re-entry
+        // Eşzamanlı (concurrent) girişleri önlemek için asenkron işlemden hemen önce kaydet
         if !triggered.isEmpty {
             storeAlerts(alerts)
         }
         
-        // Now trigger the notifications asynchronously
+        // Şimdi bildirimleri asenkron olarak tetikle
         for alert in alertsToTrigger {
             let symbol = normalize(alert.symbol)
             guard let currentPrice = normalizedPrices[symbol] else { continue }
@@ -209,8 +214,25 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
                 }
             }
     }
+    
+    public func syncAlertSubscriptions() {
+        let alerts = loadAlerts()
+        let activeSymbols = alerts.filter { $0.isActive }.map { normalize($0.symbol) }
+        guard !activeSymbols.isEmpty else { return }
+        
+        let cryptoSymbols = activeSymbols.map { s -> String in
+            if !s.hasSuffix("USDT") && !s.hasSuffix("TRY") && !s.hasSuffix("BUSD") {
+                return s + "USDT"
+            }
+            return s
+        }
+        
+        Task {
+            await PortfolioService.shared.subscribeCryptoLivePrices(symbols: cryptoSymbols)
+        }
+    }
 
-    // MARK: - Internals
+    // MARK: - Dahili Yardımcı Metotlar
 
     private func loadAlerts() -> [Alert] {
         guard let data = defaults.data(forKey: alertsKey) else { return [] }
@@ -238,7 +260,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
     }
 
     private func triggerNotification(alert: Alert, currentPrice: Decimal) async {
-        // Try to ensure auth is requested at least once.
+        // Yetkinin en az bir kez istendiğinden emin olmaya çalış.
         await requestNotificationAuthorizationIfNeeded()
 
         let content = UNMutableNotificationContent()
@@ -246,7 +268,7 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         content.body = notificationBody(alert: alert, currentPrice: currentPrice)
         content.sound = .default
 
-        // Add minimal metadata for deep-link / debug if needed.
+        // Gerekirse derin bağlantı (deep-link) veya hata ayıklama için minimal meta verileri ekle.
         content.userInfo = [
             "alertId": alert.id.uuidString,
             "symbol": normalize(alert.symbol),
@@ -280,14 +302,21 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         let fileURL = folderURL.appendingPathComponent("\(cleanSymbol).png")
         let fallbackURL = folderURL.appendingPathComponent("AppLogo.png")
         
+        let mirrorURLs = [
+            URL(string: "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/\(cleanSymbol).png"),
+            URL(string: "https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/\(cleanSymbol).png"),
+            URL(string: "https://assets.coincap.io/assets/icons/\(cleanSymbol)@2x.png")
+        ].compactMap { $0 }
+        
         do {
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
             
-            if let url = URL(string: "https://assets.coincap.io/assets/icons/\(cleanSymbol)@2x.png"),
-               let (data, response) = try? await URLSession.shared.data(from: url),
-               let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                try data.write(to: fileURL)
-                return try UNNotificationAttachment(identifier: cleanSymbol, url: fileURL, options: nil)
+            for url in mirrorURLs {
+                if let (data, response) = try? await URLSession.shared.data(from: url),
+                   let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                    try data.write(to: fileURL)
+                    return try UNNotificationAttachment(identifier: cleanSymbol, url: fileURL, options: nil)
+                }
             }
             
             guard let image = UIImage(named: "AppLogo"),
@@ -302,14 +331,14 @@ public final class AlertService: NSObject, AlertServicing, UNUserNotificationCen
         }
     }
 
-    // MARK: - UNUserNotificationCenterDelegate
+    // MARK: - Bildirim Merkezi Delegesi (UNUserNotificationCenterDelegate)
 
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // Show banner and play sound even when app is in foreground
+        // Uygulama ön plandayken bile başlığı göster ve ses çal
         completionHandler([.banner, .sound, .list])
     }
 }

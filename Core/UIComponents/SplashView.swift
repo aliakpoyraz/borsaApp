@@ -31,14 +31,40 @@ struct SplashView: View {
                     .blur(radius: blur)
                 
                 if !network.isConnected {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .tint(.secondary)
-                        Text("Bağlantı Bekleniyor...")
-                            .font(.caption.weight(.medium))
+                    VStack(spacing: 16) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 30))
                             .foregroundColor(.secondary)
+                        
+                        Text("İnternet bağlantınız yok")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Text("Lütfen bağlantınızı kontrol edin ve tekrar deneyin.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                        
+                        Button {
+                            checkConnectionAndProceed()
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Yeniden Dene")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(Color.blue)
+                            .clipShape(Capsule())
+                        }
                     }
-                    .transition(.opacity)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if opacity == 1.0 { // Sadece her şey görünürken ve internet varken
+                    ProgressView()
+                        .tint(.secondary)
                 }
             }
             .opacity(opacity)
@@ -53,19 +79,25 @@ struct SplashView: View {
                     self.opacity = 1.0
                 }
                 
-                Task {
-                    // Min display timing for branding
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    
-                    // Wait for connection
-                    while !NetworkMonitor.shared.isConnected {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                    }
-                    
-                    await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.6)) {
-                            isSplashing = false
-                        }
+                checkConnectionAndProceed(delay: 1.5)
+            }
+            .onChange(of: network.isConnected) { _, isConnected in
+                if isConnected {
+                    checkConnectionAndProceed(delay: 0.5)
+                }
+            }
+        }
+    }
+
+    private func checkConnectionAndProceed(delay: Double = 1.5) {
+        Task {
+            // Min display timing for branding
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            
+            if NetworkMonitor.shared.isConnected {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.6)) {
+                        isSplashing = false
                     }
                 }
             }

@@ -79,7 +79,7 @@ struct BorsaTakipApp: App {
         let bistService = BistService.shared
         
         _ = await alertService.checkAlerts { symbols in
-            let cryptos = (try? await cryptoService.fetchAll24hTickers(cachePolicy: .ignoreCache)) ?? []
+            let cryptos = await cryptoService.fetchAll24hTickers(cachePolicy: .ignoreCache)
             let stocks = await bistService.fetchStocks(forceRefresh: false)
             
             var dictionary: [String: Decimal] = [:]
@@ -109,7 +109,7 @@ struct BorsaTakipApp: App {
         let stockSymbols = FavoritesManager.shared.favoriteStockSymbols
         
         // Fetch latest tickers/stocks to ensure we have data for the bridge
-        let cryptos = (try? await CryptoService.shared.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)) ?? []
+        let cryptos = await CryptoService.shared.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
         let stocks = await BistService.shared.fetchStocks(forceRefresh: false)
         
         WidgetDataBridge.shared.syncFavorites(
@@ -145,77 +145,40 @@ struct RootView: View {
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @State private var isSplashing = true
     @ObservedObject private var network = NetworkMonitor.shared
-    @State private var hasConnectedAtLeastOnce = false
     
     let alertService: AlertService
     
     var body: some View {
         ZStack(alignment: .top) {
-            if !network.isConnected && !hasConnectedAtLeastOnce && !isSplashing {
-                noInternetBlockerView
+            if isSplashing {
+                SplashView(isSplashing: $isSplashing)
+            } else if !hasSeenOnboarding {
+                OnboardingView()
             } else {
-                ZStack(alignment: .top) {
-                    if isSplashing {
-                        SplashView(isSplashing: $isSplashing)
-                    } else if !hasSeenOnboarding {
-                        OnboardingView()
-                    } else {
-                        MainTabView()
-                            .task {
-                                await alertService.requestNotificationAuthorizationIfNeeded()
-                                alertService.setupForegroundMonitoring(pricePublisher: PortfolioService.shared.priceUpdatePublisher)
-                            }
+                MainTabView()
+                    .task {
+                        await alertService.requestNotificationAuthorizationIfNeeded()
+                        alertService.setupForegroundMonitoring(pricePublisher: PortfolioService.shared.priceUpdatePublisher)
+                        alertService.syncAlertSubscriptions()
                     }
-                    
-                    // Global Network Banner (for when connection drops after a successful start)
-                    if !network.isConnected && hasConnectedAtLeastOnce && !isSplashing {
-                        HStack(spacing: 8) {
-                            Image(systemName: "wifi.slash")
-                            Text("Lütfen bağlantınızı kontrol edin.")
-                        }
-                        .font(.subheadline.bold())
-                        .foregroundColor(.white)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.red.opacity(0.95))
-                        .shadow(radius: 4)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .zIndex(999)
-                    }
-                }
-            }
-        }
-        .animation(.easeInOut, value: network.isConnected)
-        .animation(.easeInOut, value: isSplashing)
-        .onChange(of: network.isConnected) { _, isConnected in
-            if isConnected {
-                hasConnectedAtLeastOnce = true
-            }
-        }
-    }
-    
-    private var noInternetBlockerView: some View {
-        VStack(spacing: 24) {
-            ZStack {
-                Circle()
-                    .fill(Color.red.opacity(0.15))
-                    .frame(width: 100, height: 100)
-                Image(systemName: "wifi.slash")
-                    .font(.system(size: 40, weight: .bold))
-                    .foregroundColor(.red)
             }
             
-            VStack(spacing: 8) {
-                Text("İnternet Bağlantısı Yok")
-                    .font(.title2.bold())
-                Text("BorsaApp'i kullanabilmek için aktif bir internet bağlantısına ihtiyacınız var. Lütfen bağlantınızı kontrol edin.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+            // Global Network Banner (Subtle top alert)
+            if !network.isConnected && !isSplashing {
+                HStack(spacing: 8) {
+                    Image(systemName: "wifi.slash")
+                    Text("İnternet bağlantınız yok")
+                }
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color.red.opacity(0.95))
+                .shadow(radius: 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(999)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .animation(.easeInOut, value: isSplashing)
     }
 }

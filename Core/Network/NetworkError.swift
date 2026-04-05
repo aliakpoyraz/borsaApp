@@ -14,11 +14,11 @@ enum NetworkError: Error, LocalizedError {
         case .invalidResponse:
             return "Sunucudan beklenen yanıt alınamadı."
         case .decodingError(let error):
-            return "Veri işlenirken bir hata oluştu: \(error.localizedDescription)"
+            return "Veri işlenirken bir hata oluştu: \(error.turkishDescription)"
         case .serverError(let statusCode):
             return "Sunucu hatası. (Hata Kodu: \(statusCode))"
         case .unknown(let error):
-            return "Bilinmeyen bir hata oluştu: \(error.localizedDescription)"
+            return "Bilinmeyen bir hata oluştu: \(error.turkishDescription)"
         }
     }
 }

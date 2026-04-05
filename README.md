@@ -2,7 +2,6 @@
 
 BorsaApp, Borsa İstanbul (BIST) ve Kripto Para piyasalarını tek bir çatı altında toplayan gerçek zamanlı veri takibi, portföy yönetimi ve akıllı alarm sistemine sahip modern bir iOS uygulamasıdır.
 
-Bu proje, bir öğrenci proje ödevi titizliğinde hazırlanmış olup, modern iOS geliştirme teknolojilerinin gerçek dünya senaryolarındaki kullanımını göstermektedir.
 
 <p align="center">
   <img src="Resources/Screenshots/home_screen.jpg" width="200">
@@ -162,4 +161,4 @@ Fiyat geçmişini kullanıcıya anlamlı bir şekilde sunmak için Apple'ın gü
 
 ---
 
-*Bu proje, YZL 344 Mobil Programlama dersi için proje ödevi olarak hazırlanmıştır. Herhangi bir ticari amacı yoktur, veriler üzerinden yapılabilecek herhangi bir yatırım kullanıcı insiyatifindedir, sorumluluk tamamen kullanıcıya aittir.* 🧪
+*Bu proje, YZL 344 Mobil Programlama dersi için proje ödevi olarak hazırlanmıştır. Herhangi bir ticari amacı yoktur, veriler üzerinden yapılabilecek herhangi bir yatırım kullanıcı insiyatifindedir, sorumluluk tamamen kullanıcıya aittir.*

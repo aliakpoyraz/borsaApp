@@ -42,7 +42,7 @@ public final class FavoritesManager: ObservableObject {
         }
     }
     
-    // MARK: - Crypto
+    // MARK: - Kripto Paralar (Crypto)
     public func isCryptoFavorite(_ symbol: String) -> Bool {
         favoriteCryptoSymbols.contains(symbol)
     }
@@ -57,7 +57,7 @@ public final class FavoritesManager: ObservableObject {
         }
     }
     
-    // MARK: - Stocks (BIST)
+    // MARK: - Hisseler (BIST Stocks)
     public func isStockFavorite(_ symbol: String) -> Bool {
         favoriteStockSymbols.contains(symbol)
     }
@@ -72,7 +72,7 @@ public final class FavoritesManager: ObservableObject {
         }
     }
     
-    // MARK: - API Sync Helpers
+    // MARK: - API Senkronizasyon Yardımcıları (API Sync Helpers)
     
     private func getAccessToken() async -> String? {
         // DispatchQueue arkasından çalışmaması veya MainActor'dan güvenli okunabilmesi için

@@ -10,28 +10,23 @@ public final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotifi
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         
-        // Initialize Google Sign-In without Firebase
+        // Firebase
         let clientID = "327055343915-j8o3i59pl3s5tsfclvtfeculq6648vad.apps.googleusercontent.com"
         let config = GIDConfiguration(clientID: clientID)
         GIDSignIn.sharedInstance.configuration = config
         
-        // Set notification center delegate
+        // Bildirim ayarları
         UNUserNotificationCenter.current().delegate = self
-        
-        // Register for remote notifications
         application.registerForRemoteNotifications()
         
         return true
     }
-    
-    // MARK: - UNUserNotificationCenterDelegate
     
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // Show banner and play sound even when app is in foreground
         completionHandler([[.banner, .sound, .list]])
     }
     
@@ -40,7 +35,6 @@ public final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotifi
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        // Handle notification click if needed
         completionHandler()
     }
     

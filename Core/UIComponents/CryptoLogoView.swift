@@ -5,7 +5,7 @@ public struct CryptoLogoView: View {
     let size: CGFloat
     
     public init(symbol: String, size: CGFloat = 44) {
-        // Case-insensitive stripping of common suffixes
+        // Yaygın eklerin (suffix) büyük/küçük harf duyarsız olarak kaldırılması
         self.symbol = symbol
             .replacingOccurrences(of: "USDT", with: "", options: .caseInsensitive)
             .replacingOccurrences(of: "BUSD", with: "", options: .caseInsensitive)
@@ -16,7 +16,8 @@ public struct CryptoLogoView: View {
     }
     
     public var body: some View {
-        let logoURL = URL(string: "https://assets.coincap.io/assets/icons/\(symbol.lowercased())@2x.png")
+        // Türkiye'deki mobil ağlarda en kararlı çalışan kaynak
+        let logoURL = URL(string: "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/\(symbol.lowercased()).png")
         
         AsyncImage(url: logoURL) { phase in
             switch phase {
@@ -32,7 +33,7 @@ public struct CryptoLogoView: View {
                 placeholder
             }
         }
-        .id(symbol) // Force reload on symbol change
+        .id(symbol) // Sembol değiştiğinde yeniden yüklemeye zorla
     }
     
     private var placeholder: some View {

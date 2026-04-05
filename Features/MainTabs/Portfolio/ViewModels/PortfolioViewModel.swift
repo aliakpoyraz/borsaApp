@@ -4,13 +4,13 @@ import SwiftUI
 
 @MainActor
 public final class PortfolioViewModel: ObservableObject {
-    @Published public private(set) var totalBalance: Decimal = 0 // Represents Total Value of Assets (not fiat)
+    @Published public private(set) var totalBalance: Decimal = 0 // Varlıkların Toplam Değerini Temsil Eder (Fiat/Nakit Değil)
     @Published public private(set) var assetsWithPnL: [PortfolioAssetPnL] = []
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var usdToTryRate: Decimal = 32.5
     
-    // Dependencies
+    // Bağımlılıklar (Dependencies)
     private let portfolioService: PortfolioServicing
     private var refreshTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -20,6 +20,7 @@ public final class PortfolioViewModel: ObservableObject {
         subscribeToPriceUpdates()
     }
     
+
     private func subscribeToPriceUpdates() {
         portfolioService.priceUpdatePublisher
             .receive(on: DispatchQueue.main)
@@ -30,10 +31,13 @@ public final class PortfolioViewModel: ObservableObject {
     }
     
     private func handlePriceUpdate(symbol: String, price: Decimal, percent: Decimal?) {
-        // Find the asset(s) and update them
+        let upperSymbol = symbol.uppercased()
         var found = false
+        
         for i in 0..<assetsWithPnL.count {
-            if assetsWithPnL[i].symbol.uppercased() == symbol.uppercased() {
+            let assetSymbol = assetsWithPnL[i].symbol.uppercased()
+            // BTC vs BTCUSDT eşleşmesini kontrol et
+            if assetSymbol == upperSymbol || (assetsWithPnL[i].kind == .crypto && (assetSymbol + "USDT" == upperSymbol || upperSymbol + "USDT" == assetSymbol)) {
                 let old = assetsWithPnL[i]
                 assetsWithPnL[i] = PortfolioAssetPnL(
                     symbol: old.symbol,
@@ -47,7 +51,6 @@ public final class PortfolioViewModel: ObservableObject {
         }
         
         if found {
-            // Recalculate total portfolio value dynamically in TL
             self.totalBalance = assetsWithPnL.reduce(Decimal(0)) { $0 + $1.totalValueTL(rate: usdToTryRate) }
         }
     }
@@ -81,16 +84,16 @@ public final class PortfolioViewModel: ObservableObject {
             
             self.assetsWithPnL = fetchedAssets
             
-            // Cache logos for widgets (only cryptos)
+            // Widget'lar için logoları önbelleğe al (Sadece kriptolar)
             let cryptoSymbols = fetchedAssets.filter { $0.kind == .crypto }.map { $0.symbol }
             WidgetLogoManager.shared.cacheLogos(for: cryptoSymbols)
             
-            // Calculate total portfolio value dynamically in TL
+            // Toplam portföy değerini TL cinsinden dinamik olarak hesapla
             self.totalBalance = fetchedAssets.reduce(Decimal(0)) { $0 + $1.totalValueTL(rate: rate) }
             
         } catch {
-            errorMessage = error.localizedDescription
-            print("PortfolioViewModel Error: \(error)")
+            // Ağ hatası durumunda popup göstermek yerine banner'a güveniyoruz
+            print("PortfolioViewModel Hatası: \(error)")
         }
         
         isLoading = false
@@ -99,7 +102,9 @@ public final class PortfolioViewModel: ObservableObject {
     
     public func addAsset(kind: PortfolioAssetKind, symbol: String, quantityStr: String) async -> Bool {
         let cleanSymbol = symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard let quantity = Decimal(string: quantityStr.replacingOccurrences(of: ",", with: ".")) else {
+        // Sadece virgülleri noktaya çevirerek global (.) ondalık formatına uyumlu hale getiriyoruz. Noktaları silmiyoruz.
+        let cleanedStr = quantityStr.replacingOccurrences(of: ",", with: ".")
+        guard let quantity = Decimal(string: cleanedStr, locale: Locale(identifier: "en_US_POSIX")) else {
             self.errorMessage = "Geçersiz miktar."
             return false
         }
@@ -114,23 +119,25 @@ public final class PortfolioViewModel: ObservableObject {
             await loadData()
             return true
         } catch {
-            self.errorMessage = error.localizedDescription
+            self.errorMessage = error.turkishDescription
             return false
         }
     }
     
     public func removeAsset(asset: PortfolioAssetPnL) async {
         do {
-            // Delete all quantity
+            // Tüm miktarı sil
             try await portfolioService.sell(kind: asset.kind, symbol: asset.symbol, quantity: asset.quantity)
             await loadData()
         } catch {
-            self.errorMessage = error.localizedDescription
+            self.errorMessage = error.turkishDescription
         }
     }
 
     public func updateAssetQuantity(asset: PortfolioAssetPnL, newQuantityStr: String) async -> Bool {
-        guard let quantity = Decimal(string: newQuantityStr.replacingOccurrences(of: ",", with: ".")) else {
+        // Sadece virgülleri noktaya çevirerek global (.) ondalık formatına uyumlu hale getiriyoruz. Noktaları silmiyoruz.
+        let cleanedStr = newQuantityStr.replacingOccurrences(of: ",", with: ".")
+        guard let quantity = Decimal(string: cleanedStr, locale: Locale(identifier: "en_US_POSIX")) else {
             self.errorMessage = "Geçersiz miktar."
             return false
         }
@@ -140,12 +147,12 @@ public final class PortfolioViewModel: ObservableObject {
             await loadData()
             return true
         } catch {
-            self.errorMessage = error.localizedDescription
+            self.errorMessage = error.turkishDescription
             return false
         }
     }
     
-    // MARK: - Widget Sync
+    // MARK: - Widget Senkronizasyonu (Widget Sync)
     private func syncToWidget() {
         guard AuthManager.shared.isAuthenticated else { return }
         let isHidden = UserDefaults.standard.bool(forKey: "isBalanceHidden")
@@ -163,7 +170,7 @@ public final class PortfolioViewModel: ObservableObject {
         WidgetDataBridge.shared.syncPortfolio(assets: items, totalPortfolioValue: self.totalBalance)
     }
 
-    // Format helpers
+    // Formatlama Yardımcıları (Format helpers)
     public func formatAmount(_ amount: Decimal) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency

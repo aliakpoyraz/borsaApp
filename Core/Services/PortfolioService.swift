@@ -40,13 +40,13 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         }
     }
 
-    // Dependencies
+    // Bağımlılıklar (Dependencies)
     private let bistService: BistServicing
     private let cryptoService: CryptoServicing
     private let webSocketClient: WebSocketClienting
     private let now: @Sendable () -> Date
 
-    // In-memory
+    // Bellek İçi (In-memory) Önbellek
     private var priceCache: [String: (price: Decimal, percent: Decimal?, updatedAt: Date?)] = [:]
     private var localAssetsCache: [PortfolioAsset] = []
     private var livePriceTask: Task<Void, Never>?
@@ -79,9 +79,9 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         livePriceTask?.cancel()
     }
 
-    // MARK: - Token Management
+    // MARK: - Token ve Kimlik Doğrulama Yönetimi
 
-    /// Returns current access token, auto-refreshing if expired (401).
+    /// Mevcut erişim token'ını döndürür, süresi dolmuşsa (401) otomatik yeniler.
     private func validToken() async -> String {
         let token = UserDefaults.standard.string(forKey: "supabaseAccessToken") ?? ""
         return token
@@ -91,7 +91,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         return UserDefaults.standard.string(forKey: "supabaseAccessToken") ?? ""
     }
 
-    /// Makes an authenticated request, auto-retrying once if 401 (JWT expired).
+    /// Kimlik doğrulamalı istek yapar, 401 (süre dolumu) durumunda bir kez otomatik dener.
     private func authenticatedData(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         var req = request
         let token = getAccessToken()
@@ -102,7 +102,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         let httpRes = response as! HTTPURLResponse
 
         if httpRes.statusCode == 401 {
-            // Token expired — try refresh
+            // Token süresi doldu — yenilemeyi dene
             if let newToken = await AuthManager.shared.refreshTokenIfNeeded() {
                 var retryReq = req
                 retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
@@ -164,7 +164,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
             if current.price == 0 {
                 current = (try? await currentPrice(for: asset.kind, symbol: asset.symbol, forceRefresh: true)) ?? (0, nil)
             } else {
-                // Periodically force refresh stocks that don't have websocket updates
+                // Websocket güncellemesi olmayan hisseleri periyodik olarak yenilemeye zorla
                 if asset.kind == .stock {
                     current = (try? await currentPrice(for: asset.kind, symbol: asset.symbol, forceRefresh: true)) ?? current
                 }
@@ -228,14 +228,14 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         self.localAssetsCache = [] // Clear cache to force refresh
     }
     
-    // MARK: - Supabase Sync (Private)
+    // MARK: - Supabase Senkronizasyonu (Özel)
     
     private func syncPortfolioAsset(kind: PortfolioAssetKind, symbol: String, quantity: Decimal) async throws {
         guard !getAccessToken().isEmpty else { throw Error.syncError("Giriş yapmanız gerekiyor") }
 
         let qDouble = NSDecimalNumber(decimal: quantity).doubleValue
 
-        // Simplified body: ONLY sending what is in your database (symbol, kind, quantity)
+        // Basitleştirilmiş gövde: SADECE veritabanındaki alanları gönderiyoruz (sembol, tür, miktar)
         let body: [String: Any] = [
             "symbol": symbol.uppercased(),
             "kind": kind.rawValue,
@@ -243,7 +243,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         ]
         let bodyData = try? JSONSerialization.data(withJSONObject: body)
 
-        // PostgREST Upsert using 'on_conflict'
+        // 'on_conflict' kullanarak PostgREST Upsert işlemi
         let urlStr = "\(SupabaseConfig.supabaseURL)/rest/v1/portfolio_assets?on_conflict=user_id,symbol,kind"
         guard let url = URL(string: urlStr) else { return }
         
@@ -260,7 +260,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
             throw Error.syncError("Varlık senkronizasyon hatası (\(httpRes.statusCode)): \(errBody)")
         }
 
-        // Update local cache
+        // Yerel önbelleği güncelle
         let normalizedSym = symbol.uppercased()
         if let idx = self.localAssetsCache.firstIndex(where: { $0.symbol == normalizedSym && $0.kind == kind }) {
             self.localAssetsCache[idx].quantity = quantity
@@ -282,7 +282,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         self.localAssetsCache.removeAll(where: { $0.symbol == symbol && $0.kind == kind })
     }
 
-    // MARK: - Live Prices
+    // MARK: - Canlı Fiyatlar
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -302,7 +302,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         await webSocketClient.subscribe(symbols: symbols)
     }
 
-    // MARK: - Internals
+    // MARK: - Dahili Yardımcı Metotlar
 
     private func currentPrice(for kind: PortfolioAssetKind, symbol: String, forceRefresh: Bool = false) async throws -> (price: Decimal, percent: Decimal?) {
         let symbol = normalize(symbol)
@@ -320,7 +320,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
                 return (price, percent)
             }
             
-            // Fallback to popular list
+            // Popüler listeye geri dön (fallback)
             let stocks = await bistService.fetchStocks(forceRefresh: forceRefresh)
             if let match = stocks.first(where: { normalize($0.symbol) == symbol }) {
                 guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
@@ -331,7 +331,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
             throw Error.priceUnavailable
 
         case .crypto:
-            let tickers = try await cryptoService.fetchAll24hTickers(cachePolicy: forceRefresh ? .refreshIgnoringCache : .useCacheIfAvailable)
+            let tickers = await cryptoService.fetchAll24hTickers(cachePolicy: forceRefresh ? .refreshIgnoringCache : .useCacheIfAvailable)
             guard let match = tickers.first(where: { normalize($0.symbol) == symbol }) else { throw Error.priceUnavailable }
             guard let price = DecimalParser.parse(match.lastPrice) else { throw Error.priceUnavailable }
             let percent = DecimalParser.parse(match.priceChangePercent)
@@ -356,7 +356,7 @@ public final class PortfolioService: PortfolioServicing, @unchecked Sendable {
         let key = cacheKeyFor(kind: .crypto, symbol: symbol)
         priceCache[key] = (price, percent, tick.eventTime ?? now())
         
-        // Emit update to publisher
+        // Yayıncıya (publisher) güncelleme gönder
         priceUpdateSubject.send((symbol: symbol, price: price, percent: percent))
     }
 

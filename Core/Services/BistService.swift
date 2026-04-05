@@ -6,9 +6,9 @@ public protocol BistServicing: Sendable {
     func fetchHistoricalPrices(symbol: String, period: String) async throws -> [Double]
 }
 
-// MARK: - BistService
-// Uses Yahoo Finance with proper iOS-like headers that bypass the 429 rate limiting browser block.
-// Falls back to cached or static data if fetching fails.
+// MARK: - BistService (Borsa İstanbul Servisi)
+// Borsa İstanbul verileri için Yahoo Finance kullanır. iOS benzeri headerlar ile 429 (oran sınırı) engellerini aşar.
+// Veri çekme başarısız olursa önbellekteki veya statik verileri kullanır.
 public final class BistService: BistServicing, @unchecked Sendable {
     private let ttl: TimeInterval = 15 * 60
     private let now: @Sendable () -> Date
@@ -18,7 +18,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
     
     public static let shared = BistService()
 
-    // All major BIST stocks — used for search and as fallback
+    // Tüm ana BIST hisseleri — arama ve yedek veri için kullanılır
     private let knownStocks: [(symbol: String, name: String)] = [
         // BIST 30 / Büyük Şirketler
         ("THYAO", "Türk Hava Yolları"),
@@ -287,13 +287,13 @@ public final class BistService: BistServicing, @unchecked Sendable {
         self.now = now
     }
 
-    // MARK: - Fetch Stocks
+    // MARK: - Hisse Verilerini Getir
     public func fetchStocks(forceRefresh: Bool = false) async -> [Stock] {
         if !forceRefresh, let cachedAt, let cachedStocks, now().timeIntervalSince(cachedAt) <= ttl {
             return cachedStocks
         }
 
-        // Fetch top 30 major stocks for the dashboard
+        // Ana ekran için ilk 30 büyük hisseyi getirir
         let symbols = Array(knownStocks.prefix(30).map { $0.symbol })
         var live = await fetchYahooQuotes(symbols: symbols)
 
@@ -308,19 +308,19 @@ public final class BistService: BistServicing, @unchecked Sendable {
             return live
         }
 
-        // Return cached or placeholder if API fails
+        // API hata verirse önbelleği veya yer tutucu verileri döndürür
         if let cached = cachedStocks { return cached }
         return knownStocks.prefix(30).map {
             Stock(symbol: $0.symbol, description: $0.name, lastPrice: "—", changePercent: "—", volume: "—")
         }
     }
 
-    // MARK: - Search Stocks
+    // MARK: - Hisse Ara
     public func searchStocks(query: String) async -> [Stock] {
         guard !query.isEmpty else { return [] }
         let q = query.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Filter known stocks list (symbol prefix OR name contains query)
+        // Bilinen hisse listesini filtrele (sembol ön eki veya isim sorguyu içeriyorsa)
         let matched = knownStocks.filter {
             $0.symbol.hasPrefix(q) || $0.symbol.contains(q) || $0.name.localizedCaseInsensitiveContains(query)
         }
@@ -328,7 +328,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
         var results: [Stock] = []
         
         if !matched.isEmpty {
-            // Fetch live prices for matched symbols (up to 12 for performance)
+            // Eşleşen semboller için canlı fiyatları getir (performans için en fazla 12)
             let limitedMatches = Array(matched.prefix(12))
             
             await withTaskGroup(of: Stock?.self) { group in
@@ -345,7 +345,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
                 }
             }
             
-            // Fill in placeholders for those that couldn't be fetched live
+            // Canlı çekilemeyen hisseler için yer tutucuları doldur
             let fetchedSymbols = Set(results.map { $0.symbol })
             for match in limitedMatches {
                 if !fetchedSymbols.contains(match.symbol) {
@@ -362,7 +362,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
             return results.sorted { $0.symbol < $1.symbol }
         }
         
-        // Not in knownStocks — try to fetch directly from Yahoo by symbol
+        // knownStocks listesinde yoksa — doğrudan Yahoo'dan sembol ile çekmeyi dene
         if q.count >= 3 {
             if let directStock = await fetchSingleQuote(symbol: q) {
                 return [directStock]
@@ -372,12 +372,12 @@ public final class BistService: BistServicing, @unchecked Sendable {
         return []
     }
 
-    // MARK: - Yahoo Finance quote fetcher - with staggered fallback sources
+    // MARK: - Yahoo Finance Veri Getirici - Kademeli yedek kaynaklar ile
     private func fetchYahooQuotes(symbols: [String]) async -> [Stock] {
-        // Source 1: Yahoo query1 with crumbs approach (most reliable for BIST)
+        // Kaynak 1: Yahoo query1 crumbs yaklaşımı (BIST için en güveniliri)
         let symbolsIS = symbols.map { "\($0).IS" }.joined(separator: ",")
         
-        // Try three different Yahoo endpoints
+        // Üç farklı Yahoo endpoint'ini dene
         let fields = "&fields=marketCap,trailingPE,forwardPE,priceToBook,trailingAnnualDividendYield,dividendYield,regularMarketPrice,regularMarketChangePercent,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume"
         let endpoints = [
             "https://query1.finance.yahoo.com/v8/finance/quote?symbols=\(symbolsIS)&formatted=false&lang=tr-TR&region=TR\(fields)",
@@ -388,7 +388,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
         for urlStr in endpoints {
             guard let url = URL(string: urlStr) else { continue }
             var request = URLRequest(url: url)
-            // Use a modern Chrome UA — Yahoo tends to block old/iOS UAs recently
+            // Modern Chrome UA kullan — Yahoo son zamanlarda eski veya iOS UA'ları engelliyor
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             request.setValue("https://finance.yahoo.com/", forHTTPHeaderField: "Referer")
             request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
@@ -434,12 +434,6 @@ public final class BistService: BistServicing, @unchecked Sendable {
                 ?? knownStocks.first(where: { $0.symbol == sym })?.name
                 ?? sym)
 
-            // Financial Metrics (Extra)
-            let mktCap = (item["marketCap"] as? NSNumber)?.doubleValue ?? 0
-            let pe = (item["trailingPE"] as? NSNumber)?.doubleValue ?? (item["forwardPE"] as? NSNumber)?.doubleValue
-            let pb = (item["priceToBook"] as? NSNumber)?.doubleValue
-            let div = (item["trailingAnnualDividendYield"] as? NSNumber)?.doubleValue
-
             stocks.append(Stock(
                 symbol: sym,
                 description: name,
@@ -469,8 +463,8 @@ public final class BistService: BistServicing, @unchecked Sendable {
         return String(format: "₺%.0f", mktCap)
     }
 
-    // Fallback: fetch individual symbols one-by-one from Yahoo Finance chart endpoint
-    // This is more reliable than the batch quotes endpoint
+    // Yedek: Yahoo Finance grafik endpoint'inden sembolleri tek tek çek
+    // Bu yöntem toplu veri çekme endpoint'inden daha güvenilirdir
     private func fetchFallbackQuotes(symbols: [String]) async -> [Stock] {
         var stocks: [Stock] = []
         
@@ -492,7 +486,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
                 }
             }
             
-            // Add a small delay between chunks to avoid quick connection exhaustion
+            // Bağlantı sınırına takılmamak için yığınlar arasına küçük bir gecikme ekle
             if i + chunkSize < symbols.count {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
             }
@@ -505,7 +499,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
     }
 
     private func fetchSingleQuote(symbol: String) async -> Stock? {
-        // Use Yahoo chart endpoint per-symbol — more reliable than batch quotes for BIST
+        // Her sembol için Yahoo chart endpoint'ini kullan — BIST için toplu veriden daha güvenilirdir
         let ts = Int(Date().timeIntervalSince1970)
         let urlStr = "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol).IS?range=1d&interval=1d&includePrePost=false&_=\(ts)"
         guard let url = URL(string: urlStr) else { return nil }
@@ -532,13 +526,6 @@ public final class BistService: BistServicing, @unchecked Sendable {
         let volume = meta["regularMarketVolume"] as? Double ?? 0
         let change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100.0 : 0.0
         let name = knownStocks.first(where: { $0.symbol == symbol })?.name ?? symbol
-        
-        // Extra Metrics for Fallback
-        let mktCap = meta["marketCap"] as? Double ?? 0
-        let pe = meta["trailingPE"] as? Double 
-        let pb = meta["priceToBook"] as? Double
-        let div = meta["trailingAnnualDividendYield"] as? Double
-
         return Stock(
             symbol: symbol,
             description: name,
@@ -550,7 +537,7 @@ public final class BistService: BistServicing, @unchecked Sendable {
         )
     }
 
-    // MARK: - Historical Prices
+    // MARK: - Geçmiş Fiyat Verileri
     public func fetchHistoricalPrices(symbol: String, period: String) async throws -> [Double] {
         var range = "1d"; var interval = "5m"
         switch period {

@@ -2,10 +2,12 @@ import SwiftUI
 
 struct CryptoHomeView: View {
     @StateObject private var viewModel = CryptoViewModel()
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var news: [NewsItem] = []
     @State private var isLoadingNews = false
+    @State private var showingLogin = false
 
-    // Orange/red accent for crypto theme
+    // Kripto teması için turuncu/kırmızı gradyan (accent)
     private let cryptoGradient = LinearGradient(colors: [Color.orange, Color.red], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     var body: some View {
@@ -40,17 +42,27 @@ struct CryptoHomeView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ProfileView()) {
-                        Image(systemName: "person.circle")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
+                    if authManager.isAuthenticated {
+                        NavigationLink(destination: ProfileView()) {
+                            Image(systemName: "person.circle")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Button("Giriş Yap") {
+                            showingLogin = true
+                        }
+                        .font(.subheadline.weight(.semibold))
                     }
                 }
+            }
+            .sheet(isPresented: $showingLogin) {
+                LoginView()
             }
         }
     }
 
-    // MARK: - Dashboard
+    // MARK: - Kontrol Paneli (Dashboard)
     private var dashboardView: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -66,7 +78,7 @@ struct CryptoHomeView: View {
         }
     }
 
-    // MARK: - Crypto Section
+    // MARK: - Kripto Bölümü (Crypto Section)
     private func cryptoSection(title: String, icon: String, accent: Color, cryptos: [Crypto]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -136,7 +148,7 @@ struct CryptoHomeView: View {
         .shadow(color: Color.primary.opacity(0.05), radius: 8, x: 0, y: 2)
     }
 
-    // MARK: - Search Results
+    // MARK: - Arama Sonuçları (Search Results)
     private var searchResultsView: some View {
         List {
             ForEach(viewModel.filteredCryptos) { crypto in
@@ -184,7 +196,7 @@ struct CryptoHomeView: View {
         .padding(.vertical, 4)
     }
 
-    // MARK: - Logo
+    // MARK: - Logo Bileşeni (Logo)
     @ViewBuilder
     private func cryptoLogo(symbol: String, size: CGFloat) -> some View {
         let logoURL = URL(string: "https://assets.coincap.io/assets/icons/\(symbol.lowercased())@2x.png")
@@ -207,7 +219,7 @@ struct CryptoHomeView: View {
         }
     }
 
-    // MARK: - News
+    // MARK: - Haberler (News)
     private var newsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -226,7 +238,7 @@ struct CryptoHomeView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - States
+    // MARK: - Durum Görünümleri (States)
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()

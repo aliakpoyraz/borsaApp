@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol CryptoServicing: Sendable {
-    func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy) async throws -> [Crypto]
+    func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy) async -> [Crypto]
     func fetchHistoricalPrices(symbol: String, period: String) async throws -> [Double]
 }
 
@@ -17,13 +17,32 @@ public final class CryptoService: CryptoServicing, @unchecked Sendable {
             case .invalidEndpoint:
                 return "Binance endpoint URL could not be constructed."
             case .requestFailed(let error):
-                return error.localizedDescription
+                return error.turkishDescription
             }
         }
     }
 
     private let client: RESTClient
     private let endpointURL: URL?
+    private let cacheKey = "cachedLength24hTickers"
+    private let cacheDateKey = "cachedLength24hTickersDate"
+    private let userDefaults = UserDefaults.standard
+
+    // Ana kripto paralar - İnternet yokken arama veya ilk açılış için kullanılır
+    private let knownCryptos: [(symbol: String, name: String)] = [
+        ("BTCUSDT", "Bitcoin"),
+        ("ETHUSDT", "Ethereum"),
+        ("BNBUSDT", "BNB"),
+        ("SOLUSDT", "Solana"),
+        ("XRPUSDT", "XRP"),
+        ("ADABUSD", "Cardano"),
+        ("AVAXUSDT", "Avalanche"),
+        ("DOTUSDT", "Polkadot"),
+        ("MATICUSDT", "Polygon"),
+        ("DOGEUSDT", "Dogecoin"),
+        ("TRXUSDT", "TRON"),
+        ("LINKUSDT", "Chainlink")
+    ]
 
     public init(
         client: RESTClient = RESTClient(),
@@ -33,8 +52,10 @@ public final class CryptoService: CryptoServicing, @unchecked Sendable {
         self.endpointURL = endpointURL
     }
 
-    public func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy = .refreshIgnoringCache) async throws -> [Crypto] {
-        guard let endpointURL else { throw Error.invalidEndpoint }
+    public func fetchAll24hTickers(cachePolicy: RESTClient.CachePolicy = .refreshIgnoringCache) async -> [Crypto] {
+        guard let endpointURL else {
+            return loadFromCache() ?? []
+        }
 
         let request = RESTClient.Request(
             url: endpointURL,
@@ -43,10 +64,54 @@ public final class CryptoService: CryptoServicing, @unchecked Sendable {
         )
 
         do {
-            // Binance returns an array of tickers. Our `Crypto` model matches key names directly.
-            return try await client.send(request, decodeTo: [Crypto].self)
-        } catch let e as RESTClient.Error {
-            throw Error.requestFailed(e)
+            // Ağ üzerinden veriyi çekmeye çalış (Binance 24h ticker listesi)
+            let fetched = try await client.send(request, decodeTo: [Crypto].self)
+            
+            // Başarılı olursa yerel depoya kaydet
+            saveToCache(fetched)
+            return fetched
+            
+        } catch {
+            print("CryptoService: Ağ verisi çekilemedi, yerel cache kontrol ediliyor...")
+            
+            // Ağ hatası durumunda yerel depodan (UserDefaults) veriyi oku
+            if let cached = loadFromCache() {
+                return cached
+            }
+            
+            // Hiç veri yoksa bilinen kripto listesinden yer tutucuları oluştur
+            return knownCryptos.map {
+                Crypto(
+                    symbol: $0.symbol,
+                    lastPrice: "0",
+                    priceChangePercent: "0",
+                    highPrice: "0",
+                    lowPrice: "0",
+                    volume: "0"
+                )
+            }
+        }
+    }
+    
+    // MARK: - Yerel Önbellek (Local Cache)
+    
+    private func saveToCache(_ cryptos: [Crypto]) {
+        do {
+            let data = try JSONEncoder().encode(cryptos)
+            userDefaults.set(data, forKey: cacheKey)
+            userDefaults.set(Date().timeIntervalSince1970, forKey: cacheDateKey)
+        } catch {
+            print("CryptoService: Cache kaydetme hatası: \(error)")
+        }
+    }
+
+    private func loadFromCache() -> [Crypto]? {
+        guard let data = userDefaults.data(forKey: cacheKey) else { return nil }
+        do {
+            return try JSONDecoder().decode([Crypto].self, from: data)
+        } catch {
+            print("CryptoService: Cache okuma hatası: \(error)")
+            return nil
         }
     }
     
@@ -78,25 +143,51 @@ public final class CryptoService: CryptoServicing, @unchecked Sendable {
         default: break
         }
         
-        guard let url = URL(string: "https://api.binance.com/api/v3/klines?symbol=\(baseSymbol)&interval=\(interval)&limit=\(limit)") else {
-            throw URLError(.badURL)
-        }
+        let mirrorHosts = [
+            "api.binance.com",
+            "api.binance.me",
+            "api1.binance.com",
+            "api2.binance.com",
+            "api3.binance.com",
+            "api-gcp.binance.com"
+        ]
         
-        var request = URLRequest(url: url)
-        request.cachePolicy = .returnCacheDataElseLoad
-        let (data, _) = try await URLSession.shared.data(for: request)
+        var lastError: Swift.Error?
         
-        // Response is array of arrays: [ [time, open, high, low, close, volume,...], [...] ]
-        if let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[Any]] {
-            return jsonArray.compactMap { point in
-                if point.count > 4, let closeStr = point[4] as? String, let closePrice = Double(closeStr) {
-                    return closePrice
-                } else if point.count > 4, let closePrice = point[4] as? Double {
-                    return closePrice
+        for host in mirrorHosts {
+            guard let url = URL(string: "https://\(host)/api/v3/klines?symbol=\(baseSymbol)&interval=\(interval)&limit=\(limit)") else {
+                continue
+            }
+            
+            var request = URLRequest(url: url)
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.timeoutInterval = 5.0 // Mobil veride hızlıca diğerine geçmek için düşük zaman aşımı
+            
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpRes = response as? HTTPURLResponse, httpRes.statusCode == 200 {
+                    if let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[Any]] {
+                        return jsonArray.compactMap { point in
+                            if point.count > 4, let closeStr = point[4] as? String, let closePrice = Double(closeStr) {
+                                return closePrice
+                            } else if point.count > 4, let closePrice = point[4] as? Double {
+                                return closePrice
+                            }
+                            return nil
+                        }
+                    }
                 }
-                return nil
+            } catch {
+                lastError = error
+                continue
             }
         }
+        
+        if let lastError {
+            throw lastError
+        }
+        
         return []
     }
 

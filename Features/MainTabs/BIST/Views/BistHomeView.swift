@@ -2,8 +2,10 @@ import SwiftUI
 
 struct BistHomeView: View {
     @StateObject private var viewModel = BistViewModel()
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var news: [NewsItem] = []
     @State private var isLoadingNews = false
+    @State private var showingLogin = false
 
     var body: some View {
         NavigationView {
@@ -23,12 +25,22 @@ struct BistHomeView: View {
             .searchable(text: $viewModel.searchText, prompt: "Hisse Ara (Örn: THYAO)")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ProfileView()) {
-                        Image(systemName: "person.circle")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
+                    if authManager.isAuthenticated {
+                        NavigationLink(destination: ProfileView()) {
+                            Image(systemName: "person.circle")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Button("Giriş Yap") {
+                            showingLogin = true
+                        }
+                        .font(.subheadline.weight(.semibold))
                     }
                 }
+            }
+            .sheet(isPresented: $showingLogin) {
+                LoginView()
             }
             .task {
                 if viewModel.stocks.isEmpty {
@@ -72,7 +84,7 @@ struct BistHomeView: View {
         HStack(spacing: 8) {
             Image(systemName: "clock.badge.exclamationmark")
                 .font(.footnote)
-            Text("Piyasa verileri en fazla 15 dakika gecikmelidir")
+            Text("Piyasa verileri ortalama 15 dakika gecikmelidir")
                 .font(.footnote)
                 .fontWeight(.medium)
             Spacer()

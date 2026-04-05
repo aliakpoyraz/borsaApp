@@ -1,10 +1,12 @@
 import SwiftUI
 
 struct PortfolioView: View {
+    @Binding var selectedTab: Int
     @StateObject private var viewModel = PortfolioViewModel()
     @ObservedObject private var authManager = AuthManager.shared
     @AppStorage("isBalanceHidden") private var isBalanceHidden = false
     @State private var showingLogin = false
+    @State private var startWithRegister = false
     @State private var showingAddAsset = false
     @State private var selectedAssetToEdit: PortfolioAssetPnL?
 
@@ -39,15 +41,10 @@ struct PortfolioView: View {
                             }
                         }
                     }
-                } else {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Giriş Yap") { showingLogin = true }
-                            .font(.subheadline.weight(.semibold))
                     }
                 }
-            }
             .sheet(isPresented: $showingLogin) {
-                LoginView()
+                LoginView(startWithRegister: startWithRegister)
             }
             .sheet(isPresented: $showingAddAsset) {
                 PortfolioAddAssetView(viewModel: viewModel)
@@ -61,7 +58,7 @@ struct PortfolioView: View {
         }
     }
 
-    // MARK: - Unauthenticated
+    // MARK: - Kimliği Doğrulanmamış Görünüm (Unauthenticated)
     private var unauthenticatedView: some View {
         VStack(spacing: 28) {
             Spacer()
@@ -87,16 +84,32 @@ struct PortfolioView: View {
                     .padding(.horizontal, 40)
             }
 
-            Button {
-                showingLogin = true
-            } label: {
-                Text("Giriş Yap / Kayıt Ol")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.blue.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            HStack(spacing: 12) {
+                Button {
+                    startWithRegister = false
+                    showingLogin = true
+                } label: {
+                    Text("Giriş Yap")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.blue.gradient)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                Button {
+                    startWithRegister = true
+                    showingLogin = true
+                } label: {
+                    Text("Kayıt Ol")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
             }
             .padding(.horizontal, 40)
 
@@ -104,10 +117,10 @@ struct PortfolioView: View {
         }
     }
 
-    // MARK: - Authenticated
+    // MARK: - Kimliği Doğrulanmış Görünüm (Authenticated)
     private var authenticatedView: some View {
         List {
-            // Hero balance card as a header-like row
+            // Üst bilgi benzeri bir satır olarak ana bakiye kartı
             Section {
                 balanceHeroCard
                     .listRowInsets(EdgeInsets())
@@ -135,21 +148,14 @@ struct PortfolioView: View {
                 let stocks = viewModel.assetsWithPnL.filter { $0.kind == .stock }
                 let cryptos = viewModel.assetsWithPnL.filter { $0.kind == .crypto }
 
-                // Stocks Section
+                // Hisse Senetleri Bölümü (Stocks Section)
                 if !stocks.isEmpty {
                     Section(header: categoryHeader(title: "Hisse Senetleri", icon: "chart.bar.fill", color: .blue)) {
                         ForEach(stocks) { asset in
-                            ZStack {
-                                NavigationLink(destination: StockDetailView(stock: stockFor(asset: asset))) {
-                                    EmptyView()
-                                }
-                                .opacity(0)
-
-                                assetRow(asset)
-                            }
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color(.secondarySystemGroupedBackground))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            assetRow(asset)
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color(.secondarySystemGroupedBackground))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     Task { await viewModel.removeAsset(asset: asset) }
                                 } label: {
@@ -169,21 +175,14 @@ struct PortfolioView: View {
                     }
                 }
 
-                // Cryptos Section
+                // Kripto Paralar Bölümü (Cryptos Section)
                 if !cryptos.isEmpty {
                     Section(header: categoryHeader(title: "Kripto Paralar", icon: "bitcoinsign.circle.fill", color: .orange)) {
                         ForEach(cryptos) { asset in
-                            ZStack {
-                                NavigationLink(destination: CryptoDetailView(crypto: cryptoFor(asset: asset))) {
-                                    EmptyView()
-                                }
-                                .opacity(0)
-                                
-                                assetRow(asset)
-                            }
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color(.secondarySystemGroupedBackground))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            assetRow(asset)
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color(.secondarySystemGroupedBackground))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     Task { await viewModel.removeAsset(asset: asset) }
                                 } label: {
@@ -233,7 +232,7 @@ struct PortfolioView: View {
         .padding(.leading, 4)
     }
 
-    // MARK: - Balance Card
+    // MARK: - Bakiye Kartı (Balance Card)
     private var balanceHeroCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -279,19 +278,19 @@ struct PortfolioView: View {
         .padding(.horizontal)
     }
 
-    // MARK: - Asset Row (swipe-deletable)
+    // MARK: - Varlık Satırı (swipe-deletable)
     private func assetRow(_ asset: PortfolioAssetPnL) -> some View {
         let baseSymbol = asset.symbol.replacingOccurrences(of: "USDT", with: "").replacingOccurrences(of: "BUSD", with: "")
 
         return HStack(spacing: 14) {
-            // Logo
+            // Logo/İkon
             if asset.kind == .crypto {
                 CryptoLogoView(symbol: baseSymbol, size: 44)
             } else {
                 gradientCircle(symbol: baseSymbol, colors: [.blue, .cyan])
             }
 
-            // Name & Qty
+            // İsim ve Miktar
             VStack(alignment: .leading, spacing: 3) {
                 let displaySymbol = asset.kind == .crypto ? "\(baseSymbol)/USDT" : "\(baseSymbol)/TL"
                 Text(displaySymbol)
@@ -304,7 +303,7 @@ struct PortfolioView: View {
 
             Spacer()
 
-            // Value
+            // Değer Bilgisi
             VStack(alignment: .trailing, spacing: 4) {
                 Text(viewModel.formatAmount(asset.totalValueTL(rate: viewModel.usdToTryRate)))
                     .font(.subheadline.weight(.semibold))
@@ -385,7 +384,7 @@ struct PortfolioView: View {
         )
     }
 
-    // MARK: - States
+    // MARK: - Durum Görünümleri (States)
     private var loadingView: some View {
         VStack(spacing: 14) {
             ProgressView()
@@ -463,8 +462,8 @@ struct PortfolioView: View {
 struct PortfolioView_Previews: PreviewProvider {
     static var previews: some View {
         Group {
-            PortfolioView()
-            PortfolioView().preferredColorScheme(.dark)
+            PortfolioView(selectedTab: .constant(4))
+            PortfolioView(selectedTab: .constant(4)).preferredColorScheme(.dark)
         }
     }
 }

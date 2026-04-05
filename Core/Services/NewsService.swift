@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - NewsItem Model
+// MARK: - Haber Öğesi Modeli (NewsItem)
 public struct NewsItem: Identifiable, Sendable {
     public let id = UUID()
     public let title: String
@@ -42,7 +42,7 @@ public final class NewsService: @unchecked Sendable {
 
     private init() {}
 
-    // MARK: - Public API
+    // MARK: - Genel API (Public API)
     public func fetchCryptoNews() async -> [NewsItem] {
         if let cached = cryptoCachedAt, Date().timeIntervalSince(cached) < ttl, !cryptoCache.isEmpty {
             return cryptoCache
@@ -67,7 +67,7 @@ public final class NewsService: @unchecked Sendable {
             return bistCache
         }
         let items = await fetchFeeds(bistFeeds)
-        // Filter only finance/economy-related news
+        // Sadece finans/ekonomi ile ilgili haberleri filtrele
         let filtered = items.filter { item in
             let combined = (item.title + " " + item.description).lowercased()
             return bistKeywords.contains(where: { combined.contains($0) })
@@ -78,7 +78,7 @@ public final class NewsService: @unchecked Sendable {
         return result
     }
 
-    // MARK: - RSS Parsing
+    // MARK: - RSS Ayrıştırma (RSS Parsing)
     private func fetchFeeds(_ feeds: [(String, String)]) async -> [NewsItem] {
         var allItems: [NewsItem] = []
 
@@ -107,7 +107,7 @@ public final class NewsService: @unchecked Sendable {
             let (data, _) = try await URLSession.shared.data(for: request)
             return parseRSS(data: data, source: source)
         } catch {
-            print("News fetch error (\(source)): \(error.localizedDescription)")
+            print("Haber çekme hatası (\(source)): \(error.localizedDescription)")
             return []
         }
     }
@@ -118,7 +118,7 @@ public final class NewsService: @unchecked Sendable {
     }
 }
 
-// MARK: - Simple RSS XML Parser
+// MARK: - Basit RSS XML Ayrıştırıcı (RSS XML Parser)
 final class RSSParser: NSObject, XMLParserDelegate {
     private let source: String
     private var items: [NewsItem] = []

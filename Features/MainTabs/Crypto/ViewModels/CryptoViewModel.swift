@@ -13,7 +13,7 @@ public final class CryptoViewModel: ObservableObject {
         }
     }
     
-    // Dependencies
+    // Bağımlılıklar (Dependencies)
     private let cryptoService: CryptoServicing
     private let webSocketClient: WebSocketClienting
     private var subscribeTask: Task<Void, Never>?
@@ -60,19 +60,14 @@ public final class CryptoViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        do {
-            let fetchedCryptos = try await cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
-            
-            // Sadece USDT paritelerini al, popüler olanları öne çıkar, kalanları hacme göre sırala
-            self.cryptos = CryptoService.sortCryptos(fetchedCryptos)
-            
-            Task {
-                await webSocketClient.connect()
-                scheduleSubscribe()
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            print("CryptoViewModel Error: \\(error)")
+        let fetchedCryptos = await cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
+        
+        // Sadece USDT paritelerini al, popüler olanları öne çıkar, kalanları hacme göre sırala
+        self.cryptos = CryptoService.sortCryptos(fetchedCryptos)
+        
+        Task {
+            await webSocketClient.connect()
+            scheduleSubscribe()
         }
         
         isLoading = false
@@ -91,7 +86,7 @@ public final class CryptoViewModel: ObservableObject {
         subscribeTask?.cancel()
         subscribeTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms geciktirme (debounce)
             if Task.isCancelled { return }
             let symbols = self.filteredCryptos.prefix(50).map { $0.symbol }
             await self.webSocketClient.subscribe(symbols: symbols)

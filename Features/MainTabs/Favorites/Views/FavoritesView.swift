@@ -1,9 +1,13 @@
 import SwiftUI
 
 struct FavoritesView: View {
+    @Binding var selectedTab: Int
+    let onBistReset: () -> Void
+    let onCryptoReset: () -> Void
     @StateObject private var viewModel = FavoritesViewModel()
     @ObservedObject private var authManager = AuthManager.shared
     @State private var showingLogin = false
+    @State private var startWithRegister = false
 
     var body: some View {
         NavigationView {
@@ -18,13 +22,15 @@ struct FavoritesView: View {
             }
             .navigationTitle("Favorilerim")
             .navigationBarTitleDisplayMode(.large)
-            .sheet(isPresented: $showingLogin) { LoginView() }
+            .sheet(isPresented: $showingLogin) { LoginView(startWithRegister: startWithRegister) }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ProfileView()) {
-                        Image(systemName: "person.circle")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
+                    if authManager.isAuthenticated {
+                        NavigationLink(destination: ProfileView()) {
+                            Image(systemName: "person.circle")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -56,16 +62,32 @@ struct FavoritesView: View {
                     .padding(.horizontal, 40)
             }
 
-            Button {
-                showingLogin = true
-            } label: {
-                Text("Giriş Yap / Kayıt Ol")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.blue.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            HStack(spacing: 12) {
+                Button {
+                    startWithRegister = false
+                    showingLogin = true
+                } label: {
+                    Text("Giriş Yap")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.blue.gradient)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                Button {
+                    startWithRegister = true
+                    showingLogin = true
+                } label: {
+                    Text("Kayıt Ol")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
             }
             .padding(.horizontal, 40)
 
@@ -73,7 +95,7 @@ struct FavoritesView: View {
         }
     }
 
-    // MARK: - Authenticated
+    // MARK: - Kimliği Doğrulanmış Görünüm (Authenticated)
     private var authenticatedView: some View {
         Group {
             if viewModel.isLoading && viewModel.favoriteCryptos.isEmpty && viewModel.favoriteStocks.isEmpty {
@@ -94,21 +116,19 @@ struct FavoritesView: View {
         }
     }
 
-    // MARK: - List
+    // MARK: - Liste Görünümü (List)
     private var listView: some View {
         List {
-            // Connection banner
-            if !viewModel.isConnected {
-                reconnectBanner
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(EmptyView())
-                    .padding(.vertical, 8)
-            }
 
             if !viewModel.favoriteStocks.isEmpty {
                 Section(header: favoriteSectionHeader(title: "Hisse Senetleri", icon: "chart.bar.fill", accent: .blue)) {
                     ForEach(viewModel.favoriteStocks) { stock in
-                        NavigationLink(destination: StockDetailView(stock: stock)) {
+                        ZStack {
+                            NavigationLink(destination: StockDetailView(stock: stock)) {
+                                EmptyView()
+                            }
+                            .opacity(0)
+                            
                             stockRow(stock)
                         }
                         .listRowInsets(EdgeInsets())
@@ -117,8 +137,8 @@ struct FavoritesView: View {
                             Button(role: .destructive) {
                                 viewModel.removeFavoriteStock(stock)
                             } label: {
-                                Label("Sil", systemImage: "star.slash")
-                            }
+                                Label("Sil", systemImage: "trash.fill")}
+                            .tint(.red)
                         }
                     }
                 }
@@ -127,7 +147,12 @@ struct FavoritesView: View {
             if !viewModel.favoriteCryptos.isEmpty {
                 Section(header: favoriteSectionHeader(title: "Kripto Paralar", icon: "bitcoinsign.circle.fill", accent: .orange)) {
                     ForEach(viewModel.favoriteCryptos) { crypto in
-                        NavigationLink(destination: CryptoDetailView(crypto: crypto)) {
+                        ZStack {
+                            NavigationLink(destination: CryptoDetailView(crypto: crypto)) {
+                                EmptyView()
+                            }
+                            .opacity(0)
+                            
                             cryptoRow(crypto)
                         }
                         .listRowInsets(EdgeInsets())
@@ -160,7 +185,7 @@ struct FavoritesView: View {
         .padding(.leading, 4)
     }
 
-    // MARK: - Rows
+    // MARK: - Satır Görünümleri (Rows)
     private func stockRow(_ stock: Stock) -> some View {
         let isPositive = stock.changePercent.hasPrefix("+")
         let changeColor: Color = stock.changePercent == "—" ? .secondary : (isPositive ? .green : .red)
@@ -231,20 +256,7 @@ struct FavoritesView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - States
-    private var reconnectBanner: some View {
-        HStack(spacing: 8) {
-            ProgressView().scaleEffect(0.7)
-            Text("Bağlantı yenileniyor...")
-                .font(.caption.weight(.medium))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(Color(.tertiarySystemGroupedBackground))
-        .clipShape(Capsule())
-    }
-
+    // MARK: - Durum Görünümleri (States)
     private var loadingView: some View {
         VStack(spacing: 14) {
             ProgressView().scaleEffect(1.1)
@@ -256,7 +268,7 @@ struct FavoritesView: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 24) {
             ZStack {
                 Circle()
                     .fill(Color.yellow.opacity(0.1))
@@ -265,6 +277,7 @@ struct FavoritesView: View {
                     .font(.system(size: 36))
                     .foregroundColor(.yellow.opacity(0.6))
             }
+            
             VStack(spacing: 8) {
                 Text("Favori Bulunamadı")
                     .font(.headline)
@@ -273,12 +286,42 @@ struct FavoritesView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
+            .padding(.horizontal, 40)
+            
+            HStack(spacing: 12) {
+                Button {
+                    onBistReset()
+                    selectedTab = 1
+                } label: {
+                    Label("Hisselere Git", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                
+                Button {
+                    onCryptoReset()
+                    selectedTab = 2
+                } label: {
+                    Label("Kriptoya Git", systemImage: "bitcoinsign.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.orange)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.orange.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(.horizontal, 30)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 80)
     }
 
-    // MARK: - Formatters
+    // MARK: - Formatlama Yardımcıları (Formatters)
     private func formatCryptoPrice(_ str: String) -> String {
         guard let val = Double(str) else { return "$—" }
         return val > 1 ? String(format: "$%.2f", val) : String(format: "$%.4f", val)
@@ -293,8 +336,16 @@ struct FavoritesView: View {
 struct FavoritesView_Previews: PreviewProvider {
     static var previews: some View {
         Group {
-            FavoritesView()
-            FavoritesView().preferredColorScheme(.dark)
+            FavoritesView(
+                selectedTab: .constant(3),
+                onBistReset: {},
+                onCryptoReset: {}
+            )
+            FavoritesView(
+                selectedTab: .constant(3),
+                onBistReset: {},
+                onCryptoReset: {}
+            ).preferredColorScheme(.dark)
         }
     }
 }

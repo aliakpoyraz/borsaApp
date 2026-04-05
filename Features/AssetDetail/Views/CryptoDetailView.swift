@@ -9,6 +9,7 @@ struct CryptoDetailView: View {
     @State private var historicalData: [Double] = []
     @State private var isChartLoading = true
     @State private var showLoginPrompt = false
+    @ObservedObject private var network = NetworkMonitor.shared
     
     // Alerts & Trend
     @State private var activeAlerts: [Alert] = []
@@ -20,6 +21,7 @@ struct CryptoDetailView: View {
     @State private var liveChange: String = ""
     @State private var livePriceChange: String = ""
     @State private var liveTask: Task<Void, Never>?
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     let baseSymbol: String
     private var isPositive: Bool { (Double(liveChange) ?? 0) >= 0 }
@@ -43,6 +45,21 @@ struct CryptoDetailView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
+                    if !network.isConnected {
+                        HStack(spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                            Text("İnternet bağlantınız yok")
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                    }
+                    
                     heroHeader
                     priceCard
                     chartSection
@@ -152,6 +169,8 @@ struct CryptoDetailView: View {
                     color: .red
                 ) {
                     if authManager.isAuthenticated {
+                        impactFeedback.prepare()
+                        impactFeedback.impactOccurred()
                         favorites.toggleCryptoFavorite(crypto.symbol)
                     } else {
                         showLoginPrompt = true
@@ -230,14 +249,11 @@ struct CryptoDetailView: View {
                         .frame(height: 220)
                 } else if historicalData.isEmpty {
                     VStack(spacing: 8) {
-                        let displaySymbol = "\(crypto.symbol.replacingOccurrences(of: "USDT", with: ""))/USDT"
-                        Text(displaySymbol)
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(.primary).opacity(0.4)
-                        TextField("0", text: .constant(""))
-                            .keyboardType(.decimalPad)
-                            .font(.system(.title3, design: .rounded).bold())
-                            .multilineTextAlignment(.trailing)
+                        Image(systemName: "chart.xyaxis.line")
+                            .font(.system(size: 32))
+                            .foregroundColor(.secondary.opacity(0.4))
+                        Text("Grafik verisi bulunamadı")
+                            .font(.subheadline).foregroundColor(.secondary)
                     }
                     .frame(height: 220)
                 } else {
@@ -407,7 +423,7 @@ struct CryptoDetailView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Fiyat $\(String(describing: alert.targetPrice)) \(alert.isAbove ? "üstüne çıkınca" : "altına inince")")
                                     .font(.subheadline.weight(.medium))
-                                Text("Lokal Bildirim")
+                                Text("Fiyat Bildirimi")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }

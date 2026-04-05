@@ -7,7 +7,6 @@ public final class FavoritesViewModel: ObservableObject {
     @Published public private(set) var favoriteCryptos: [Crypto] = []
     @Published public private(set) var favoriteStocks: [Stock] = []
     @Published public private(set) var isLoading: Bool = false
-    @Published public private(set) var isConnected: Bool = true
     
     private let cryptoService: CryptoServicing
     private let bistService: BistServicing
@@ -40,7 +39,6 @@ public final class FavoritesViewModel: ObservableObject {
             }
             .store(in: &cancellables)
             
-        listenToNetworkState()
         setupLivePrices()
     }
     
@@ -55,42 +53,27 @@ public final class FavoritesViewModel: ObservableObject {
     
     public func loadData() async {
         isLoading = true
+        async let cryptosTask = cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
+        async let stocksTask = bistService.fetchStocks(forceRefresh: false)
         
-        do {
-            async let cryptosTask = cryptoService.fetchAll24hTickers(cachePolicy: .useCacheIfAvailable)
-            async let stocksTask = bistService.fetchStocks(forceRefresh: false)
-            
-            let (fetchedCryptos, fetchedStocks) = try await (cryptosTask, stocksTask)
-            
-            let cryptoFavs = FavoritesManager.shared.favoriteCryptoSymbols
-            let stockFavs = FavoritesManager.shared.favoriteStockSymbols
-            
-            self.favoriteCryptos = fetchedCryptos.filter { cryptoFavs.contains($0.symbol) }
-            self.favoriteStocks = fetchedStocks.filter { stockFavs.contains($0.symbol) }
-            
-            // Cache logos for widgets
-            WidgetLogoManager.shared.cacheLogos(for: self.favoriteCryptos.map { $0.symbol })
-            
-            Task {
-                await webSocketClient.connect()
-                scheduleSubscribe()
-            }
-            
-        } catch {
-            print("FavoritesViewModel Error: \\(error)")
+        let (fetchedCryptos, fetchedStocks) = await (cryptosTask, stocksTask)
+        
+        let cryptoFavs = FavoritesManager.shared.favoriteCryptoSymbols
+        let stockFavs = FavoritesManager.shared.favoriteStockSymbols
+        
+        self.favoriteCryptos = fetchedCryptos.filter { cryptoFavs.contains($0.symbol) }
+        self.favoriteStocks = fetchedStocks.filter { stockFavs.contains($0.symbol) }
+        
+        // Widget logolarını önbelleğe al
+        WidgetLogoManager.shared.cacheLogos(for: self.favoriteCryptos.map { $0.symbol })
+        
+        Task {
+            await webSocketClient.connect()
+            scheduleSubscribe()
         }
         
         isLoading = false
         syncToWidget()
-    }
-    
-    private func listenToNetworkState() {
-        NetworkMonitor.shared.$isConnected
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] connected in
-                self?.isConnected = connected
-            }
-            .store(in: &cancellables)
     }
     
     private func scheduleSubscribe() {
@@ -122,14 +105,19 @@ public final class FavoritesViewModel: ObservableObject {
     }
     
     public func removeFavoriteStock(_ stock: Stock) {
+        // Optimistic update: Hemen yerel listeden çıkar ki UI anında güncellensin.
+        // loadData() zaten FavoritesManager'daki değişikliği dinleyip arka planda çalışacak.
+        favoriteStocks.removeAll { $0.symbol == stock.symbol }
         FavoritesManager.shared.toggleStockFavorite(stock.symbol)
     }
     
     public func removeFavoriteCrypto(_ crypto: Crypto) {
+        // Optimistic update: Hemen yerel listeden çıkar.
+        favoriteCryptos.removeAll { $0.symbol == crypto.symbol }
         FavoritesManager.shared.toggleCryptoFavorite(crypto.symbol)
     }
 
-    // MARK: - Widget Sync
+    // MARK: - Widget Senkronizasyonu (Widget Sync)
     private func syncToWidget() {
         let authManager = AuthManager.shared
         guard authManager.isAuthenticated else { return }
@@ -150,7 +138,7 @@ public final class FavoritesViewModel: ObservableObject {
                     if let stock = self.favoriteStocks.first(where: { $0.symbol == symbol }) {
                         let price = "\u{20BA}" + stock.lastPrice
                         let val = Double(stock.lastPrice) ?? 0
-                        let usdVal = val / 45.0 // Approximate 2026 USD/TRY Rate
+                        let usdVal = val / 45.0 // Ortalama Dolar Kuru (Widget placeholder için)
                         return (price: price, change: stock.changePercent, isPositive: stock.changePercent.hasPrefix("+"), usdPrice: usdVal)
                     }
                 }

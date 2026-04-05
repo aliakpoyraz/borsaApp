@@ -45,7 +45,7 @@ struct NewsSectionView: View {
     }
 }
 
-// MARK: - NewsRowView
+// MARK: - Haber Satırı Görünümü (NewsRowView)
 struct NewsRowView: View {
     let item: NewsItem
     @State private var showSafari = false
@@ -53,10 +53,10 @@ struct NewsRowView: View {
     var body: some View {
         Button(action: { showSafari = true }) {
             HStack(alignment: .top, spacing: 12) {
-                // Thumbnail
+                // Küçük Resim (Thumbnail)
                 thumbnailView
 
-                // Text content
+                // Metin İçeriği (Text content)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
                         .font(.system(.subheadline, design: .default))
@@ -148,7 +148,7 @@ struct NewsRowView: View {
     }
 }
 
-// MARK: - SafariView Wrapper
+// MARK: - SafariView Sarmalayıcı (Wrapper)
 struct SafariView: UIViewControllerRepresentable {
     let url: URL
 

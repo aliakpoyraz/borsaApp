@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C9170D132F60CA91003D3C33 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = C9170D122F60CA91003D3C33 /* .gitignore */; };
+		C954CBCB2F81907600C821EB /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C954CBCA2F81907600C821EB /* ActivityKit.framework */; };
 		C9C0E4892F7FF0F400E644ED /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C9C0E4882F7FF0F400E644ED /* GoogleSignIn */; };
 		C9C0E48B2F7FF0F700E644ED /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C9C0E48A2F7FF0F700E644ED /* GoogleSignInSwift */; };
 		C9C0E4912F7FFE0000E644ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C9C0E4902F7FFE0000E644ED /* Assets.xcassets */; };
@@ -56,6 +57,7 @@
 
 /* Begin PBXFileReference section */
 		C9170D122F60CA91003D3C33 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		C954CBCA2F81907600C821EB /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
 		C95E36B52F60CBEA0035EC50 /* borsaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = borsaApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C95E36B62F60CBEA0035EC50 /* borsaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = borsaAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C95E36B72F60CBEA0035EC50 /* borsaAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = borsaAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -70,29 +72,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C9170B142F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaApp" target */ = {
+		C954CBDC2F81A86700C821EB /* Exceptions for "Core" folder in "borsaApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				borsaAppTests/borsaAppTests.swift,
-				borsaAppUITests/borsaAppUITests.swift,
-				borsaAppUITests/borsaAppUITestsLaunchTests.swift,
 			);
 			target = C9170ADF2F60C7B0003D3C33 /* borsaApp */;
-		};
-		C9170B152F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaAppTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				borsaAppTests/borsaAppTests.swift,
-			);
-			target = C9170AEC2F60C7B4003D3C33 /* borsaAppTests */;
-		};
-		C9170B162F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaAppUITests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				borsaAppUITests/borsaAppUITests.swift,
-				borsaAppUITests/borsaAppUITestsLaunchTests.swift,
-			);
-			target = C9170AF62F60C7B4003D3C33 /* borsaAppUITests */;
 		};
 		C9C0E4D52F801A0700E644ED /* Exceptions for "BorsaWidgets" folder in "borsaApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -115,16 +99,6 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C9170B0B2F60C7C4003D3C33 /* Test */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C9170B142F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaApp" target */,
-				C9170B152F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaAppTests" target */,
-				C9170B162F60C7C9003D3C33 /* Exceptions for "Test" folder in "borsaAppUITests" target */,
-			);
-			path = Test;
-			sourceTree = "<group>";
-		};
 		C9170C6A2F60C95C003D3C33 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = App;
@@ -132,6 +106,9 @@
 		};
 		C9170C832F60C95C003D3C33 /* Core */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C954CBDC2F81A86700C821EB /* Exceptions for "Core" folder in "borsaApp" target */,
+			);
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -148,11 +125,6 @@
 		C9170CC32F60C95C003D3C33 /* Resources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Resources;
-			sourceTree = "<group>";
-		};
-		C9170CC52F60C95C003D3C33 /* SupportingFiles */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SupportingFiles;
 			sourceTree = "<group>";
 		};
 		C9170CCE2F60C95C003D3C33 /* Utilities */ = {
@@ -199,6 +171,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C954CBCB2F81907600C821EB /* ActivityKit.framework in Frameworks */,
 				C9C0E49C2F8010CD00E644ED /* SwiftUI.framework in Frameworks */,
 				C9C0E49A2F8010CD00E644ED /* WidgetKit.framework in Frameworks */,
 			);
@@ -221,9 +194,7 @@
 				C9170C8E2F60C95C003D3C33 /* Domain */,
 				C9170CBF2F60C95C003D3C33 /* Features */,
 				C9170CC32F60C95C003D3C33 /* Resources */,
-				C9170CC52F60C95C003D3C33 /* SupportingFiles */,
 				C9170CCE2F60C95C003D3C33 /* Utilities */,
-				C9170B0B2F60C7C4003D3C33 /* Test */,
 				C95E36B52F60CBEA0035EC50 /* borsaApp.app */,
 				C95E36B62F60CBEA0035EC50 /* borsaAppTests.xctest */,
 				C95E36B72F60CBEA0035EC50 /* borsaAppUITests.xctest */,
@@ -236,6 +207,7 @@
 		C9CD4E8E2F7FDF46007BE84C /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				C954CBCA2F81907600C821EB /* ActivityKit.framework */,
 				C9C0E4992F8010CD00E644ED /* WidgetKit.framework */,
 				C9C0E49B2F8010CD00E644ED /* SwiftUI.framework */,
 			);
@@ -260,13 +232,11 @@
 				C9C0E4AC2F8010D000E644ED /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C9170B0B2F60C7C4003D3C33 /* Test */,
 				C9170C6A2F60C95C003D3C33 /* App */,
 				C9170C832F60C95C003D3C33 /* Core */,
 				C9170C8E2F60C95C003D3C33 /* Domain */,
 				C9170CBF2F60C95C003D3C33 /* Features */,
 				C9170CC32F60C95C003D3C33 /* Resources */,
-				C9170CC52F60C95C003D3C33 /* SupportingFiles */,
 				C9170CCE2F60C95C003D3C33 /* Utilities */,
 			);
 			name = borsaApp;

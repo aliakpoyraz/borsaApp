@@ -2,8 +2,14 @@ import SwiftUI
 
 struct HomeView: View {
     @Binding var selectedTab: Int
+    let onBistReset: () -> Void
+    let onCryptoReset: () -> Void
+    let onFavoritesReset: () -> Void
+    let onPortfolioReset: () -> Void
     @StateObject private var viewModel = HomeViewModel()
     @ObservedObject private var authManager = AuthManager.shared
+    @State private var showingLogin = false
+    @State private var startWithRegister = false
     @AppStorage("isBalanceHidden") private var isBalanceHidden = false
 
     var body: some View {
@@ -13,13 +19,13 @@ struct HomeView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
-                        // Portfolio Hero
+                        // Portföy Özeti (Hero Card)
                         balanceHeroCard
 
-                        // Quick Actions
+                        // Hızlı İşlemler
                         quickActions
 
-                        // Market Sections
+                        // Piyasa Bölümleri
                         if viewModel.isLoading && viewModel.cryptos.isEmpty {
                             loadingView
                         } else {
@@ -29,6 +35,9 @@ struct HomeView: View {
                                     icon: "bitcoinsign.circle.fill",
                                     accent: .orange
                                 ) {
+                                    onCryptoReset()
+                                    selectedTab = 2
+                                } cards: {
                                     ForEach(viewModel.cryptos.prefix(8)) { crypto in
                                         NavigationLink(destination: CryptoDetailView(crypto: crypto)) {
                                             cryptoCard(crypto)
@@ -44,6 +53,9 @@ struct HomeView: View {
                                     icon: "chart.line.uptrend.xyaxis",
                                     accent: .blue
                                 ) {
+                                    onBistReset()
+                                    selectedTab = 1
+                                } cards: {
                                     ForEach(viewModel.stocks.prefix(8)) { stock in
                                         NavigationLink(destination: StockDetailView(stock: stock)) {
                                             stockCard(stock)
@@ -68,12 +80,17 @@ struct HomeView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ProfileView()) {
-                        Image(systemName: "person.circle")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
+                    if authManager.isAuthenticated {
+                        NavigationLink(destination: ProfileView()) {
+                            Image(systemName: "person.circle")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
+            }
+            .sheet(isPresented: $showingLogin) {
+                LoginView(startWithRegister: startWithRegister)
             }
             .onChange(of: isBalanceHidden) { oldValue, newValue in
                 WidgetDataBridge.shared.syncBalanceVisibility(isHidden: newValue)
@@ -81,7 +98,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Balance Card
+    // MARK: - Bakiye Kartı (Balance Card)
     private var balanceHeroCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -137,22 +154,43 @@ struct HomeView: View {
                     statPill(label: "Kripto", value: "\(viewModel.portfolioCryptoCount)", icon: "bitcoinsign")
                 }
             } else {
-                Button {
-                    selectedTab = 3
-                } label: {
-                    HStack {
-                        Text("Giriş Yap & Portföy Takibi")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .font(.subheadline.weight(.semibold))
+                HStack(spacing: 12) {
+                    Button {
+                        startWithRegister = false
+                        showingLogin = true
+                    } label: {
+                        HStack {
+                            Text("Giriş Yap")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(.white)
+                        .clipShape(Capsule())
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.white.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    Button {
+                        startWithRegister = true
+                        showingLogin = true
+                    } label: {
+                        HStack {
+                            Text("Kayıt Ol")
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(.white.opacity(0.2))
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(.white.opacity(0.3), lineWidth: 1)
+                        )
+                    }
                 }
+                .padding(.top, 4)
             }
         }
         .padding(22)
@@ -176,16 +214,28 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Quick Actions
+    // MARK: - Hızlı İşlemler (Quick Actions)
     private var quickActions: some View {
         HStack(spacing: 0) {
-            quickActionTile(icon: "bitcoinsign.circle.fill", title: "Kripto", color: .orange) { selectedTab = 2 }
+            quickActionTile(icon: "bitcoinsign.circle.fill", title: "Kripto", color: .orange) { 
+                onCryptoReset()
+                selectedTab = 2 
+            }
             Divider().frame(height: 44)
-            quickActionTile(icon: "chart.bar.fill", title: "Borsa", color: .blue) { selectedTab = 1 }
+            quickActionTile(icon: "chart.bar.fill", title: "Borsa", color: .blue) { 
+                onBistReset()
+                selectedTab = 1 
+            }
             Divider().frame(height: 44)
-            quickActionTile(icon: "star.fill", title: "Favoriler", color: .yellow) { selectedTab = 3 }
+            quickActionTile(icon: "star.fill", title: "Favoriler", color: .yellow) { 
+                onFavoritesReset()
+                selectedTab = 3 
+            }
             Divider().frame(height: 44)
-            quickActionTile(icon: "briefcase.fill", title: "Varlıklar", color: .purple) { selectedTab = 4 }
+            quickActionTile(icon: "briefcase.fill", title: "Varlıklar", color: .purple) { 
+                onPortfolioReset()
+                selectedTab = 4 
+            }
         }
         .padding(.vertical, 12)
         .background(Color(.secondarySystemGroupedBackground))
@@ -208,8 +258,14 @@ struct HomeView: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    // MARK: - Market Section
-    private func marketSection<Cards: View>(title: String, icon: String, accent: Color, @ViewBuilder cards: @escaping () -> Cards) -> some View {
+    // MARK: - Piyasa Bölümü (Market Section)
+    private func marketSection<Cards: View>(
+        title: String,
+        icon: String,
+        accent: Color,
+        onSeeAll: @escaping () -> Void,
+        @ViewBuilder cards: @escaping () -> Cards
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -218,9 +274,11 @@ struct HomeView: View {
                 Text(title)
                     .font(.headline)
                 Spacer()
-                Button("Tümü") {}
-                    .font(.subheadline)
-                    .foregroundColor(.blue)
+                Button("Tümü") {
+                    onSeeAll()
+                }
+                .font(.subheadline)
+                .foregroundColor(.blue)
             }
             .padding(.horizontal)
 
@@ -234,7 +292,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Cards
+    // MARK: - Kartlar (Cards)
     private func cryptoCard(_ crypto: Crypto) -> some View {
         let isPositive = !crypto.priceChangePercent.hasPrefix("-")
         let changeColor: Color = isPositive ? .green : .red
@@ -322,8 +380,8 @@ struct HomeView: View {
 struct HomeView_Previews: PreviewProvider {
     static var previews: some View {
         Group {
-            HomeView(selectedTab: .constant(0))
-            HomeView(selectedTab: .constant(0)).preferredColorScheme(.dark)
+            HomeView(selectedTab: .constant(0), onBistReset: {}, onCryptoReset: {}, onFavoritesReset: {}, onPortfolioReset: {})
+            HomeView(selectedTab: .constant(0), onBistReset: {}, onCryptoReset: {}, onFavoritesReset: {}, onPortfolioReset: {}).preferredColorScheme(.dark)
         }
     }
 }

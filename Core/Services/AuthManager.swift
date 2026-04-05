@@ -23,8 +23,8 @@ public class AuthManager: ObservableObject {
         WidgetDataBridge.shared.syncAuthState(isLoggedIn: true, userEmail: email)
     }
 
-    /// Refreshes the access token using the stored refresh token.
-    /// Returns the new access token, or nil if refresh fails (forces logout).
+    /// Kayıtlı yenileme (refresh) token'ını kullanarak erişim token'ını yeniler.
+    /// Başarılı olursa yeni erişim token'ını döndürür, başarısız olursa nil döner (oturumu kapatmaya zorlar).
     @discardableResult
     public func refreshTokenIfNeeded() async -> String? {
         guard !refreshToken.isEmpty else {
@@ -52,7 +52,7 @@ public class AuthManager: ObservableObject {
                 }
                 return newToken
             } else {
-                // Refresh failed — log out
+                // Yenileme başarısız — oturumu kapat
                 await MainActor.run { self.logOut() }
                 return nil
             }
@@ -153,7 +153,7 @@ public class SupabaseAuthService {
             throw AuthError.serverError("Kayıt işlemi başarısız. Lütfen tekrar deneyin.")
         }
         
-        // Eğer kayıt başarılıysa direkt giriş yapıyormuş gibi davranabiliriz.
+        // Kayıt başarılıysa doğrudan giriş yapılmış gibi devam et.
         try await signIn(email: email, password: password)
     }
     
